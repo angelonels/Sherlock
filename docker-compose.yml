@@ -1,0 +1,47 @@
+services:
+  db:
+
+    image: pgvector/pgvector:pg17
+    container_name: sherlock_postgres
+    restart: always
+    env_file:
+      - ./backend/.env
+    ports:
+      - "5432:5432"
+    volumes:
+
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - sherlock_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sherlock_admin -d sherlock_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sherlock_fastapi
+    restart: always
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+
+      - ./backend:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - sherlock_network
+
+volumes:
+  postgres_data:
+
+networks:
+  sherlock_network:
+    driver: bridge
