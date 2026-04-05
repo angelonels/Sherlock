@@ -1,0 +1,47 @@
+# ─── Sherlock — Production ─────────────────────────────────
+# Full stack: PostgreSQL + FastAPI in Docker.
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up --build
+#   docker compose -f docker-compose.prod.yml down
+# ──────────────────────────────────────────────────────────
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: sherlock_postgres
+    restart: always
+    env_file:
+      - ./backend/.env.docker
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - sherlock_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sherlock_admin -d sherlock_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sherlock_fastapi
+    restart: always
+    env_file:
+      - ./backend/.env.docker
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - sherlock_internal
+
+volumes:
+  postgres_data:
+
+networks:
+  sherlock_internal:
+    driver: bridge

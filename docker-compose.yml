@@ -1,47 +1,31 @@
+# ─── Sherlock — Development ────────────────────────────────
+# Only PostgreSQL + pgvector runs in Docker.
+# FastAPI runs on your local Python environment.
+#
+# Usage:
+#   docker compose up -d          # start DB
+#   docker compose down           # stop DB
+#   docker compose down -v        # stop + delete data
+# ──────────────────────────────────────────────────────────
+
 services:
   db:
-
     image: pgvector/pgvector:pg17
     container_name: sherlock_postgres
-    restart: always
-    env_file:
-      - ./backend/.env
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sherlock_admin
+      POSTGRES_PASSWORD: super_secure_password_123
+      POSTGRES_DB: sherlock_db
     ports:
       - "5432:5432"
     volumes:
-
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - sherlock_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sherlock_admin -d sherlock_db"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  api:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: sherlock_fastapi
-    restart: always
-    env_file:
-      - ./backend/.env
-    ports:
-      - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-
-      - ./backend:/app
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-    networks:
-      - sherlock_network
-
 volumes:
   postgres_data:
-
-networks:
-  sherlock_network:
-    driver: bridge

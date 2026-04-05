@@ -1,0 +1,9 @@
+# ─── Reference Backend Dependencies ─────────────────────────
+# This ensures that our agents in Jupyter have access to the 
+# exact same libraries as our main FastAPI project.
+-r ../backend/requirements.txt
+
+# ─── Notebook Specific Dependencies ─────────────────────────
+jupyterlab>=4.0.0
+ipykernel>=6.29.0
+python-dotenv>=1.0.0
