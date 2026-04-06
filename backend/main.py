@@ -8,6 +8,9 @@ import contextlib
 from fastapi import FastAPI
 from database import engine, Base
 from models import user, chat
+from fastapi import Depends
+from routers import auth
+from utils.auth import get_current_user
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -38,3 +41,10 @@ async def root():
 async def health():
     """Health-check endpoint."""
     return {"status": "ok"}
+
+
+app.include_router(auth.router)
+
+@app.get("/me")
+async def get_my_profile(current_user: user.User = Depends(get_current_user)):
+    return {"message": f"Hello {current_user.email}, your token is valid!"}
