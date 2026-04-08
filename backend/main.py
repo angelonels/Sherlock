@@ -43,7 +43,9 @@ async def health():
     return {"status": "ok"}
 
 
+from routers import chat as chat_router
 app.include_router(auth.router)
+app.include_router(chat_router.router)
 
 @app.get("/me")
 async def get_my_profile(current_user: user.User = Depends(get_current_user)):
