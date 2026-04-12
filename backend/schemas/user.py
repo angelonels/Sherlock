@@ -6,7 +6,10 @@ class UserCreate(BaseModel):
 
 class UserResponse(BaseModel):
     id: str
-    email: EmailStr
+    email: EmailStr | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    image_url: str | None = None
     
     class Config:
         from_attributes = True # Tells Pydantic to read SQLAlchemy objects seamlessly
