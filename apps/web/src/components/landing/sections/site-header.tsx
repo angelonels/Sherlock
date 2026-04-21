@@ -76,7 +76,7 @@ export function SiteHeader() {
         </div>
 
         <Link
-          href="/app"
+          href="/sign-in"
           className="sheen inline-flex h-10 items-center justify-center justify-self-end overflow-hidden border border-[#241f1a] bg-[#241f1a] px-4 text-sm font-semibold text-[#fffaf7] shadow-[0_18px_44px_-34px_rgba(36,31,26,0.85)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#3b332d] hover:shadow-[0_24px_60px_-38px_rgba(36,31,26,0.95)] focus-visible:ring-3 focus-visible:ring-[#b56b32]/25 focus-visible:outline-none active:translate-y-px"
         >
           Open app

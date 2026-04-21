@@ -41,9 +41,9 @@ export function CtaFooter() {
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row lg:justify-end">
-            <MagneticButton href="/app">Start your investigation</MagneticButton>
+            <MagneticButton href="/sign-up">Start your investigation</MagneticButton>
             <Link
-              href="/app"
+              href="/sign-in"
               className="inline-flex h-12 items-center justify-center border border-[#665548] bg-transparent px-5 text-sm font-semibold tracking-[-0.01em] text-[#fffaf7] transition-transform hover:-translate-y-0.5 hover:border-[#c98146] hover:text-[#dfb48e] focus-visible:ring-3 focus-visible:ring-[#c98146]/25 focus-visible:outline-none active:translate-y-px"
             >
               Open app

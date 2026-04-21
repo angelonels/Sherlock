@@ -24,7 +24,7 @@ export function HeroSection() {
               className="reveal-up mt-10 flex w-full min-w-0 flex-col gap-3 sm:w-auto sm:flex-row"
               style={{ animationDelay: "180ms" }}
             >
-              <MagneticButton href="/app">Start an investigation</MagneticButton>
+              <MagneticButton href="/sign-up">Start an investigation</MagneticButton>
               <Link
                 href="#workflow"
                 className="inline-flex h-12 w-full max-w-full items-center justify-center border border-[#d9cdbf] bg-[#fffaf7] px-5 text-sm font-semibold tracking-[-0.01em] text-[#2b2520] shadow-[0_18px_45px_-34px_rgba(70,47,30,0.7)] transition-all duration-300 hover:-translate-y-0.5 hover:border-[#9d5728] hover:bg-[#fffdf9] hover:text-[#7f421d] hover:shadow-[0_22px_55px_-38px_rgba(70,47,30,0.95)] focus-visible:ring-3 focus-visible:ring-[#b56b32]/25 focus-visible:outline-none active:translate-y-px sm:w-auto"
