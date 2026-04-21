@@ -1,11 +1,14 @@
 # ─── Dependencies ─────────────────────────────────────────
 node_modules/
+.next/
 __pycache__/
+.pytest_cache/
 *.pyc
 *.pyo
 .venv/
 venv/
 *.egg-info/
+*.tsbuildinfo
 dist/
 build/
 
@@ -28,3 +31,4 @@ Thumbs.db
 *.log
 *.csv
 .qa-*.png
+apps/api/.tmp/
