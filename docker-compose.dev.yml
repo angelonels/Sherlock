@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: sherlock_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sherlock_admin
+      POSTGRES_PASSWORD: change_me
+      POSTGRES_DB: sherlock_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - sherlock_postgres_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sherlock_admin -d sherlock_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  sherlock_postgres_dev:
+

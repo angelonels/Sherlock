@@ -1,47 +1,53 @@
-# ─── Sherlock — Production ─────────────────────────────────
-# Full stack: PostgreSQL + FastAPI in Docker.
-#
-# Usage:
-#   docker compose -f docker-compose.prod.yml up --build
-#   docker compose -f docker-compose.prod.yml down
-# ──────────────────────────────────────────────────────────
-
 services:
-  db:
-    image: pgvector/pgvector:pg17
-    container_name: sherlock_postgres
-    restart: always
-    env_file:
-      - ./backend/.env.docker
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - sherlock_internal
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sherlock_admin -d sherlock_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+    restart: unless-stopped
 
   api:
     build:
-      context: ./backend
+      context: ./apps/api
       dockerfile: Dockerfile
-    container_name: sherlock_fastapi
-    restart: always
+    command: uv run --no-sync uvicorn app.main:app --host 0.0.0.0 --port 8000
     env_file:
-      - ./backend/.env.docker
-    ports:
-      - "8000:8000"
+      - ./apps/api/.env.docker
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
-    networks:
-      - sherlock_internal
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    command: python -m app.workers.main
+    env_file:
+      - ./apps/api/.env.docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sherlock_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-sherlock_db}
+    volumes:
+      - sherlock_postgres_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-sherlock_admin} -d $${POSTGRES_DB:-sherlock_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
 volumes:
-  postgres_data:
-
-networks:
-  sherlock_internal:
-    driver: bridge
+  sherlock_postgres_prod:
