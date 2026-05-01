@@ -1,21 +1,33 @@
 from __future__ import annotations
 
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import engine
+
 
 class SqlExecutionService:
     async def execute_readonly(self, session: AsyncSession, sql: str) -> dict[str, Any]:
-        await session.execute(text("BEGIN READ ONLY"))
-        await session.execute(text("SET LOCAL statement_timeout = '10s'"))
-        try:
-            result = await session.execute(text(sql))
-            rows = [dict(row._mapping) for row in result.fetchall()]
-            await session.execute(text("ROLLBACK"))
-            columns = list(rows[0].keys()) if rows else list(result.keys())
-            return {"columns": columns, "rows": rows[:1000], "row_count": len(rows)}
-        except Exception:
-            await session.execute(text("ROLLBACK"))
-            raise
+        _ = session
+        async with engine.connect() as connection:
+            transaction = await connection.begin()
+            try:
+                await connection.execute(text("SET TRANSACTION READ ONLY"))
+                await connection.execute(text("SET LOCAL statement_timeout = '10s'"))
+                result = await connection.execute(text(sql))
+                rows = [{key: self._json_safe(value) for key, value in row._mapping.items()} for row in result.fetchall()]
+                columns = list(rows[0].keys()) if rows else list(result.keys())
+                return {"columns": columns, "rows": rows[:1000], "row_count": len(rows)}
+            finally:
+                await transaction.rollback()
+
+    def _json_safe(self, value: Any) -> Any:
+        if isinstance(value, Decimal):
+            return float(value)
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+        return value
