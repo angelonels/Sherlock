@@ -32,7 +32,7 @@ class ChatService:
 
         dataset.status = "locked"
         dataset.locked_at = datetime.now(UTC)
-        chat = ChatSession(user_id=user.id, dataset_id=dataset.id, title=dataset.name or "New investigation")
+        chat = ChatSession(user_id=user.id, dataset_id=dataset.id, title="New investigation")
         session.add(chat)
         try:
             await session.commit()
