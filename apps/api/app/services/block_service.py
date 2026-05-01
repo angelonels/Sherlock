@@ -30,9 +30,7 @@ class TableBlock(BaseModel):
 
 class ChartBlock(BaseModel):
     type: Literal["chart"]
-    title: str
-    chart_type: str = "placeholder"
-    data: list[dict[str, Any]] = Field(default_factory=list)
+    spec: dict[str, Any]
 
 
 class QualityNoteBlock(BaseModel):
@@ -81,23 +79,17 @@ class BlockService:
         suggestions: list[str] | None = None,
         quality_note: dict[str, Any] | None = None,
         kpis: list[dict[str, Any]] | None = None,
+        charts: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         blocks: list[dict[str, Any]] = [{"type": "markdown", "content": content}]
         for kpi in kpis or []:
             blocks.append({"type": "kpi", **kpi})
         if rows is not None and columns is not None:
             blocks.append({"type": "table", "columns": columns, "rows": rows[:25]})
+        for chart in charts or []:
+            blocks.append(chart)
         if quality_note:
             blocks.append({"type": "quality_note", **quality_note})
-        blocks.append(
-            {
-                "type": "suggestions",
-                "suggestions": suggestions
-                or [
-                    "What columns have missing values?",
-                    "Show a row count",
-                    "Summarize this dataset",
-                ],
-            }
-        )
+        if suggestions:
+            blocks.append({"type": "suggestions", "suggestions": suggestions})
         return self.validate_blocks(blocks)
