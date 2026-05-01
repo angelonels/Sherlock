@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     upload_preview_rows: int = 100
     xlsx_max_uncompressed_bytes: int = 100 * 1024 * 1024
     xlsx_max_compression_ratio: int = 100
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    aws_default_region: str | None = None
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(
