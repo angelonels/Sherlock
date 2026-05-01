@@ -41,6 +41,8 @@ class SqlValidationService:
             return SqlValidationResult(False, error="Multiple statements are not allowed.")
         if re.search(r"\b(" + "|".join(BLOCKED_KEYWORDS) + r")\b", lowered):
             return SqlValidationResult(False, error="Only read-only SELECT statements are allowed.")
+        if re.search(r"\b(" + "|".join(UNSAFE_FUNCTIONS) + r")\s*\(", lowered):
+            return SqlValidationResult(False, error="Unsafe SQL function is not allowed.")
 
         try:
             expressions = sqlglot.parse(sql, read="postgres")
@@ -67,9 +69,12 @@ class SqlValidationService:
             if func.sql_name().lower() in UNSAFE_FUNCTIONS:
                 return SqlValidationResult(False, error="Unsafe SQL function is not allowed.")
 
+        aliases = {alias.alias for alias in expression.find_all(exp.Alias) if alias.alias}
         for column in expression.find_all(exp.Column):
             column_name = column.name
             if column_name.startswith("_sherlock_"):
+                continue
+            if column_name in aliases:
                 continue
             if column_name not in allowed_columns:
                 return SqlValidationResult(False, error=f"Unknown or unauthorized column: {column_name}")

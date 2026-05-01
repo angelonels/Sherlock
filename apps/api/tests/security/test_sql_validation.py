@@ -37,9 +37,11 @@ def test_blocked_schemas_rejected() -> None:
 def test_writes_multiple_statements_comments_and_unknown_columns_rejected() -> None:
     checks = [
         "INSERT INTO user_data.dataset_abc VALUES (1)",
+        "DROP TABLE user_data.dataset_abc",
         'SELECT revenue FROM user_data."dataset_abc"; SELECT 1',
         'SELECT revenue FROM user_data."dataset_abc" -- hidden',
         'SELECT unknown FROM user_data."dataset_abc"',
+        'SELECT pg_sleep(1) FROM user_data."dataset_abc"',
     ]
 
     for sql in checks:
