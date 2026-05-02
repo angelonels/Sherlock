@@ -101,3 +101,90 @@ def test_dataset_to_chat_to_analysis_blocks_workflow(workflow_client: TestClient
     run = workflow_client.get(f"/api/v1/analysis-runs/{run_id}").json()["data"]
     assert run["status"] == "success"
     assert run["assistant_message"]["blocks"]
+    assert all(block["type"] != "suggestions" for block in run["assistant_message"]["blocks"])
+
+    updated_chat = workflow_client.get(f"/api/v1/chats/{chat_id}").json()["data"]
+    assert updated_chat["title"] == "How many rows are there"
+
+
+def test_customer_profit_question_returns_top_customer(workflow_client: TestClient) -> None:
+    upload = workflow_client.post(
+        "/api/v1/upload-sessions",
+        files={
+            "file": (
+                "walmart_sample.csv",
+                "customer_name,sales,profit\nAman Sharma,100,15\nMeera Rao,80,55\nAman Sharma,40,10\n",
+                "text/csv",
+            )
+        },
+    )
+    assert upload.status_code == 201
+    upload_id = upload.json()["data"]["id"]
+
+    dataset_response = workflow_client.post("/api/v1/datasets", json={"upload_session_id": upload_id, "name": "Walmart sample"})
+    assert dataset_response.status_code == 202
+    dataset_id = dataset_response.json()["data"]["id"]
+
+    import asyncio
+
+    assert asyncio.run(DatasetWorker().run_once()) >= 1
+    chat = workflow_client.post("/api/v1/chats", json={"dataset_id": dataset_id})
+    assert chat.status_code == 201
+    chat_id = chat.json()["data"]["id"]
+
+    message = workflow_client.post(
+        f"/api/v1/chats/{chat_id}/messages",
+        json={"content": "which customer generated the most profit"},
+        headers={"Idempotency-Key": "workflow-customer-profit"},
+    )
+    assert message.status_code == 202
+    run_id = message.json()["data"]["analysis_run_id"]
+
+    assert asyncio.run(AnalysisWorker().run_once()) >= 1
+    run = workflow_client.get(f"/api/v1/analysis-runs/{run_id}").json()["data"]
+    content = run["assistant_message"]["content"]
+    blocks = run["assistant_message"]["blocks"]
+    assert run["status"] == "success"
+    assert "Meera Rao" in content
+    assert "total profit" in content
+    assert any(block["type"] == "table" and block["rows"][0]["customer_name"] == "Meera Rao" for block in blocks)
+
+
+def test_missing_values_question_prefers_quality_over_schema(workflow_client: TestClient) -> None:
+    upload = workflow_client.post(
+        "/api/v1/upload-sessions",
+        files={
+            "file": (
+                "quality.csv",
+                "region,revenue,profit\nWest,100,10\nEast,,5\nNorth,90,\n",
+                "text/csv",
+            )
+        },
+    )
+    assert upload.status_code == 201
+    upload_id = upload.json()["data"]["id"]
+
+    dataset_response = workflow_client.post("/api/v1/datasets", json={"upload_session_id": upload_id, "name": "Quality sample"})
+    assert dataset_response.status_code == 202
+    dataset_id = dataset_response.json()["data"]["id"]
+
+    import asyncio
+
+    assert asyncio.run(DatasetWorker().run_once()) >= 1
+    chat = workflow_client.post("/api/v1/chats", json={"dataset_id": dataset_id})
+    assert chat.status_code == 201
+    chat_id = chat.json()["data"]["id"]
+
+    message = workflow_client.post(
+        f"/api/v1/chats/{chat_id}/messages",
+        json={"content": "what columns have missing values"},
+        headers={"Idempotency-Key": "workflow-missing-values"},
+    )
+    assert message.status_code == 202
+    run_id = message.json()["data"]["analysis_run_id"]
+
+    assert asyncio.run(AnalysisWorker().run_once()) >= 1
+    run = workflow_client.get(f"/api/v1/analysis-runs/{run_id}").json()["data"]
+    assistant = run["assistant_message"]
+    assert "quality" in assistant["content"].lower()
+    assert any(block["type"] == "quality_note" for block in assistant["blocks"])
