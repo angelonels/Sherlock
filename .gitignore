@@ -32,3 +32,4 @@ Thumbs.db
 *.csv
 .qa-*.png
 apps/api/.tmp/
+test-results/
