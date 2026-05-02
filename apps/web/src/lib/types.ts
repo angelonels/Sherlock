@@ -133,8 +133,31 @@ export type AssistantBlock =
   | { type: "plan"; steps: string[] }
   | { type: "kpi"; label: string; value: string | number; caption?: string | null }
   | { type: "table"; columns: string[]; rows: Record<string, unknown>[] }
-  | { type: "chart"; title: string; chart_type?: string; data?: Record<string, unknown>[] }
+  | { type: "chart"; spec: ChartSpec }
   | { type: "quality_note"; severity: string; title: string; description: string }
   | { type: "suggestions"; suggestions: string[] }
   | { type: "error"; title: string; message: string }
   | { type: string; [key: string]: unknown };
+
+export type ChartSpec = {
+  type:
+    | "kpi"
+    | "line"
+    | "bar"
+    | "horizontal_bar"
+    | "stacked_bar"
+    | "area"
+    | "pie"
+    | "donut"
+    | "scatter"
+    | "histogram"
+    | string;
+  title: string;
+  x_key?: string | null;
+  y_key?: string | null;
+  series_key?: string | null;
+  value_key?: string | null;
+  label_key?: string | null;
+  data: Record<string, unknown>[];
+  meta?: Record<string, unknown>;
+};
