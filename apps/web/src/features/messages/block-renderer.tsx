@@ -1,6 +1,7 @@
 "use client";
 
 import type { AssistantBlock } from "@/lib/types";
+import { ChartRenderer } from "@/features/charts/chart-renderer";
 
 type BlockMap = Extract<AssistantBlock, { type: string }>;
 
@@ -52,13 +53,16 @@ export function BlockRenderer({ blocks }: { blocks: AssistantBlock[] | null | un
             </div>
           );
         }
+        if (block.type === "chart") {
+          const chart = block as Extract<BlockMap, { type: "chart" }>;
+          return <ChartRenderer key={index} spec={chart.spec} />;
+        }
         if (block.type === "quality_note") {
           const note = block as Extract<BlockMap, { type: "quality_note" }>;
           return <div key={index} className="border border-[#d9cdbf] bg-[#fbf7f1] p-3 text-sm"><strong>{note.title}</strong><p className="mt-1 text-[#655c52]">{note.description}</p></div>;
         }
         if (block.type === "suggestions") {
-          const suggestions = block as Extract<BlockMap, { type: "suggestions" }>;
-          return <div key={index} className="flex flex-wrap gap-2">{suggestions.suggestions.map((suggestion) => <span key={suggestion} className="border border-[#d9cdbf] bg-[#fbf7f1] px-2 py-1 text-xs">{suggestion}</span>)}</div>;
+          return null;
         }
         if (block.type === "error") {
           const error = block as Extract<BlockMap, { type: "error" }>;
