@@ -9,6 +9,7 @@ import { useRef, useState } from "react";
 
 type UploadSessionStepProps = {
   apiClient: ApiClient;
+  onDatasetReady?: (datasetId: string) => void;
 };
 
 function formatBytes(value: number): string {
@@ -21,7 +22,7 @@ function formatBytes(value: number): string {
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function UploadSessionStep({ apiClient }: UploadSessionStepProps) {
+export function UploadSessionStep({ apiClient, onDatasetReady }: UploadSessionStepProps) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploadSession, setUploadSession] = useState<UploadSession | null>(null);
@@ -113,6 +114,7 @@ export function UploadSessionStep({ apiClient }: UploadSessionStepProps) {
       setDataset(nextDataset);
       if (nextDataset.status === "ready" || nextDataset.status === "locked") {
         await loadDatasetReview(datasetId);
+        onDatasetReady?.(datasetId);
         return;
       }
       if (nextDataset.status === "failed") {

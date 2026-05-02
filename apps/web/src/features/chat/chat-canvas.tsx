@@ -6,7 +6,14 @@ import type { Chat, Dataset, DatasetColumn, DatasetQualityIssue, Message } from 
 import { Loader2, Send } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 
-export function ChatCanvas({ apiClient, chatId }: { apiClient: ApiClient; chatId: string }) {
+type ChatCanvasProps = {
+  apiClient: ApiClient;
+  chatId: string;
+  onDatasetContext?: (datasetId: string) => void;
+  onChatUpdated?: () => void;
+};
+
+export function ChatCanvas({ apiClient, chatId, onDatasetContext, onChatUpdated }: ChatCanvasProps) {
   const [chat, setChat] = useState<Chat | null>(null);
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [columns, setColumns] = useState<DatasetColumn[]>([]);
@@ -32,12 +39,13 @@ export function ChatCanvas({ apiClient, chatId }: { apiClient: ApiClient; chatId
       setDataset(loadedDataset);
       setColumns(loadedColumns.data);
       setIssues(loadedIssues.data);
+      onDatasetContext?.(loadedChat.dataset_id);
     }
     void load();
     return () => {
       mounted = false;
     };
-  }, [apiClient, chatId]);
+  }, [apiClient, chatId, onDatasetContext]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -58,15 +66,21 @@ export function ChatCanvas({ apiClient, chatId }: { apiClient: ApiClient; chatId
     };
     setMessages((current) => [...current, optimistic]);
     const idempotencyKey = crypto.randomUUID();
-    const response = await apiClient.sendMessage(chatId, content, idempotencyKey);
-    setMessages((current) => current.map((message) => (message.id === optimistic.id ? response.message : message)));
-    await pollAnalysisRun(response.analysis_run_id);
-    setIsSending(false);
+    try {
+      const response = await apiClient.sendMessage(chatId, content, idempotencyKey);
+      setMessages((current) => current.map((message) => (message.id === optimistic.id ? response.message : message)));
+      await pollAnalysisRun(response.analysis_run_id);
+      onChatUpdated?.();
+    } catch (sendError) {
+      setStatus(sendError instanceof Error ? sendError.message : "Message failed");
+    } finally {
+      setIsSending(false);
+    }
   }
 
   async function pollAnalysisRun(analysisRunId: string) {
     setStatus("queued");
-    for (let index = 0; index < 30; index += 1) {
+    for (let index = 0; index < 120; index += 1) {
       const run = await apiClient.getAnalysisRun(analysisRunId);
       setStatus(run.current_stage ?? run.status);
       if ((run.status === "success" || run.status === "partial_success") && run.assistant_message) {
@@ -74,12 +88,29 @@ export function ChatCanvas({ apiClient, chatId }: { apiClient: ApiClient; chatId
         setStatus(null);
         return;
       }
+      if (run.status === "success" || run.status === "partial_success") {
+        const loadedMessages = await apiClient.getMessages(chatId);
+        setMessages(loadedMessages.data);
+        setStatus(null);
+        return;
+      }
       if (run.status === "failed") {
         setStatus(run.error_message ?? "Analysis failed");
         return;
       }
+      if (index % 4 === 3) {
+        const loadedMessages = await apiClient.getMessages(chatId);
+        setMessages((current) => {
+          const persistedIds = new Set(loadedMessages.data.map((message) => message.id));
+          const optimisticMessages = current.filter((message) => message.id.startsWith("optimistic-") && !persistedIds.has(message.id));
+          return [...loadedMessages.data, ...optimisticMessages].sort((a, b) => a.message_index - b.message_index);
+        });
+      }
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
+    const loadedMessages = await apiClient.getMessages(chatId);
+    setMessages(loadedMessages.data);
+    setStatus(null);
   }
 
   return (
@@ -102,7 +133,9 @@ export function ChatCanvas({ apiClient, chatId }: { apiClient: ApiClient; chatId
               message.role === "user" ? "ml-auto border-[#241f1a] bg-[#241f1a] text-[#fffaf7]" : "border-[#d9cdbf] bg-[#fffaf7] text-[#241f1a]",
             ].join(" ")}
           >
-            <p className="text-sm leading-6">{message.content}</p>
+            {message.role === "assistant" && message.blocks?.length ? null : (
+              <p className="text-sm leading-6">{message.content}</p>
+            )}
             {message.role === "assistant" ? <BlockRenderer blocks={message.blocks} /> : null}
           </article>
         ))}
