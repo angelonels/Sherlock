@@ -31,7 +31,7 @@ describe("AppShell", () => {
 
     render(<AppShell />);
 
-    expect(screen.getByRole("heading", { name: /Central chat canvas/i })).toBeVisible();
+    expect(screen.getByRole("heading", { name: /Investigation desk/i })).toBeVisible();
     await waitFor(() => expect(screen.getByText(/No previous chats yet/i)).toBeVisible());
   });
 
@@ -53,6 +53,18 @@ describe("AppShell", () => {
     expect(screen.queryByLabelText("Dataset panel")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Open dataset panel/i }));
     expect(screen.getByLabelText("Dataset panel")).toBeVisible();
+  });
+
+  it("closes and reopens the left chat sidebar", async () => {
+    mockChatsResponse();
+
+    render(<AppShell />);
+
+    expect(screen.getByLabelText("Chat sidebar")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /Close chat sidebar/i }));
+    expect(screen.queryByLabelText("Chat sidebar")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Open chat sidebar/i }));
+    expect(screen.getByLabelText("Chat sidebar")).toBeVisible();
   });
 
   it("shows the previous chats empty state when the API returns no chats", async () => {
