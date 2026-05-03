@@ -1,11 +1,11 @@
+import os
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.core.config import get_settings
+from app.db import models  # noqa: F401 - imported so model metadata is registered for autogenerate
 from app.db.base import Base
-from app.db import models
 
 
 config = context.config
@@ -17,7 +17,10 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    return get_settings().database_url
+    database_url = os.environ.get("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL must be set to run migrations")
+    return database_url
 
 
 def run_migrations_offline() -> None:
@@ -52,4 +55,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-
