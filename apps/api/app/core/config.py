@@ -12,7 +12,12 @@ def _split_origins(value: str | list[str]) -> list[str]:
     return [origin.strip() for origin in value.split(",") if origin.strip()]
 
 
+def _empty_to_none(value: object) -> object:
+    return None if value == "" else value
+
+
 CorsOrigins = Annotated[list[str], NoDecode, BeforeValidator(_split_origins)]
+OptionalUrl = Annotated[AnyUrl | None, BeforeValidator(_empty_to_none)]
 
 
 class Settings(BaseSettings):
@@ -26,10 +31,15 @@ class Settings(BaseSettings):
     cors_origins: CorsOrigins = Field(default_factory=lambda: ["http://localhost:3000"])
     database_url: str = "postgresql+psycopg://sherlock_admin:change_me@localhost:5432/sherlock_db"
     readonly_database_url: str | None = None
+    redis_url: str = "redis://localhost:6379/0"
+    celery_broker_url: str | None = None
+    celery_result_backend: str | None = None
+    celery_task_always_eager: bool = False
+    celery_task_eager_propagates: bool = True
     request_id_header: str = "X-Request-ID"
     clerk_secret_key: str | None = None
-    clerk_issuer_url: AnyUrl | None = None
-    clerk_jwks_url: AnyUrl | None = None
+    clerk_issuer_url: OptionalUrl = None
+    clerk_jwks_url: OptionalUrl = None
     clerk_jwt_key: str | None = None
     clerk_audience: str | None = None
     clerk_authorized_parties: CorsOrigins = Field(default_factory=list)
@@ -44,6 +54,9 @@ class Settings(BaseSettings):
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     aws_default_region: str | None = None
+    bedrock_model_id: str = "meta.llama3-70b-instruct-v1:0"
+    bedrock_temperature: float = 0.1
+    bedrock_max_tokens: int = 2048
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(
@@ -65,6 +78,14 @@ class Settings(BaseSettings):
     @property
     def effective_readonly_database_url(self) -> str:
         return self.readonly_database_url or self.database_url
+
+    @property
+    def effective_celery_broker_url(self) -> str:
+        return self.celery_broker_url or self.redis_url
+
+    @property
+    def effective_celery_result_backend(self) -> str:
+        return self.celery_result_backend or self.redis_url
 
     @property
     def effective_clerk_issuer_url(self) -> str | None:

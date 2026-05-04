@@ -23,3 +23,14 @@ def test_settings_normalizes_multiline_clerk_jwt_key():
     settings = Settings(clerk_jwt_key="-----BEGIN PUBLIC KEY-----\\nabc\\n-----END PUBLIC KEY-----")
 
     assert settings.normalized_clerk_jwt_key == "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----"
+
+
+def test_optional_clerk_urls_treat_blank_environment_values_as_unset(monkeypatch):
+    monkeypatch.setenv("CLERK_ISSUER_URL", "")
+    monkeypatch.setenv("CLERK_JWKS_URL", "")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.clerk_issuer_url is None
+    assert settings.clerk_jwks_url is None
+    assert settings.effective_clerk_issuer_url is None
