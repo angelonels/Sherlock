@@ -16,6 +16,7 @@ def make_engine(database_url: str | None = None) -> AsyncEngine:
 
 
 engine = make_engine()
+readonly_engine = make_engine(get_settings().effective_readonly_database_url)
 SessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -27,4 +28,3 @@ async def get_db_session() -> AsyncIterator[AsyncSession]:
 async def check_database_connection(session: AsyncSession) -> bool:
     await session.execute(text("SELECT 1"))
     return True
-
