@@ -15,16 +15,30 @@ SUPPORTED_EXTENSIONS = {"csv", "xlsx"}
 FORMULA_PREFIXES = ("=", "+", "-", "@")
 
 
-def upload_error(code: str, message: str, details: Any = None) -> ApiError:
-    return ApiError(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, code=code, message=message, details=details)
+def upload_error(
+    code: str,
+    message: str,
+    details: Any = None,
+    *,
+    status_code: int = status.HTTP_422_UNPROCESSABLE_CONTENT,
+) -> ApiError:
+    return ApiError(status_code=status_code, code=code, message=message, details=details)
 
 
 def validate_extension(filename: str) -> str:
     suffix = Path(filename).suffix.lower().lstrip(".")
     if suffix == "xlsm":
-        raise upload_error("UNSUPPORTED_UPLOAD_TYPE", "Macro-enabled Excel files are not supported.")
+        raise upload_error(
+            "UNSUPPORTED_UPLOAD_TYPE",
+            "Macro-enabled Excel files are not supported.",
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        )
     if suffix not in SUPPORTED_EXTENSIONS:
-        raise upload_error("UNSUPPORTED_UPLOAD_TYPE", "Only CSV and XLSX files are supported.")
+        raise upload_error(
+            "UNSUPPORTED_UPLOAD_TYPE",
+            "Only CSV and XLSX files are supported.",
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        )
     return suffix
 
 
@@ -36,6 +50,7 @@ def validate_file_size(size: int, settings: Settings) -> None:
             "UPLOAD_TOO_LARGE",
             "Uploaded file exceeds the configured size limit.",
             {"max_file_size_bytes": settings.upload_max_file_size_bytes},
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
         )
 
 
