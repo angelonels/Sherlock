@@ -60,7 +60,15 @@ class UploadSessionService:
             expires_at=datetime.now(UTC) + timedelta(minutes=settings.upload_session_ttl_minutes),
         )
         session.add(upload_session)
-        await session.commit()
+        try:
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            try:
+                delete_temp_file(settings, temp_file_key)
+            except OSError:
+                pass
+            raise
         await session.refresh(upload_session)
         setattr(upload_session, "recommended_sheet_name", inspection["recommended_sheet_name"])
         return upload_session

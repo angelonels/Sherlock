@@ -83,11 +83,20 @@ def test_macro_enabled_excel_extension_is_rejected() -> None:
         validate_extension("orders.xlsm")
 
     assert exc_info.value.code == "UNSUPPORTED_UPLOAD_TYPE"
+    assert exc_info.value.status_code == 415
+
+
+def test_other_unsupported_extension_is_rejected_with_415() -> None:
+    with pytest.raises(ApiError) as exc_info:
+        validate_extension("notes.txt")
+
+    assert exc_info.value.code == "UNSUPPORTED_UPLOAD_TYPE"
+    assert exc_info.value.status_code == 415
 
 
 def test_oversized_upload_rejected() -> None:
     with pytest.raises(ApiError) as exc_info:
         validate_file_size(10, settings(upload_max_file_size_bytes=5))
 
-    assert exc_info.value.status_code == 422
+    assert exc_info.value.status_code == 413
     assert exc_info.value.code == "UPLOAD_TOO_LARGE"
