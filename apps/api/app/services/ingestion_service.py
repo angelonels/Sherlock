@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
 from io import BytesIO, StringIO
@@ -8,6 +9,7 @@ from typing import Any
 import pandas as pd
 from fastapi import status
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -24,6 +26,9 @@ from app.services.type_mapper import postgres_type_for_series
 from app.services.upload_safety import delete_temp_file, read_temp_file
 
 
+logger = logging.getLogger("sherlock.ingestion")
+
+
 def quote_ident(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 
@@ -34,6 +39,8 @@ def physical_table_name(dataset_id: uuid.UUID) -> str:
 
 class IngestionService:
     async def ingest_dataset(self, session: AsyncSession, dataset: Dataset, settings: Settings) -> Dataset:
+        dataset_id = dataset.id
+        user_id = dataset.user_id
         try:
             upload_session = await session.get(UploadSession, dataset.upload_session_id)
             if not upload_session:
@@ -53,14 +60,13 @@ class IngestionService:
             await self._insert_rows(session, table_name, frame)
 
             profiles = profile_columns(frame.drop(columns=["_sherlock_row_hash"]), original_names)
-            for profile in profiles:
-                session.add(DatasetColumn(dataset_id=dataset.id, **profile))
-
             issues = build_quality_issues(
                 frame,
                 duplicate_rows_removed=duplicate_rows_removed,
                 column_profiles=profiles,
             )
+            for profile in profiles:
+                session.add(DatasetColumn(dataset_id=dataset.id, **profile))
             for issue in issues:
                 session.add(DatasetQualityIssue(dataset_id=dataset.id, **issue))
 
@@ -73,18 +79,53 @@ class IngestionService:
             dataset.total_missing_values = int(frame.drop(columns=["_sherlock_row_hash"]).isna().sum().sum())
             dataset.quality_status = status_name
             dataset.quality_score = score
-            dataset.raw_file_deleted_at = datetime.now(UTC)
             upload_session.status = "ingested"
-            delete_temp_file(settings, upload_session.temp_file_key)
             await session.commit()
+
+            try:
+                delete_temp_file(settings, upload_session.temp_file_key)
+            except OSError:
+                logger.exception(
+                    "raw upload cleanup deferred",
+                    extra={
+                        "job_name": "ingest_dataset",
+                        "user_id": str(user_id),
+                        "dataset_id": str(dataset_id),
+                        "status": "ready",
+                        "error_code": "RAW_UPLOAD_CLEANUP_DEFERRED",
+                    },
+                )
+            else:
+                dataset.raw_file_deleted_at = datetime.now(UTC)
+                await session.commit()
+
             await session.refresh(dataset)
             return dataset
-        except Exception as exc:
-            dataset.status = "failed"
-            dataset.ingestion_error = str(exc)
+        except (OperationalError, ConnectionError, TimeoutError):
+            await session.rollback()
+            raise
+        except Exception:
+            logger.exception(
+                "dataset ingestion failed",
+                extra={
+                    "job_name": "ingest_dataset",
+                    "user_id": str(user_id),
+                    "dataset_id": str(dataset_id),
+                    "status": "failed",
+                    "error_code": "DATASET_INGESTION_FAILED",
+                },
+            )
+            await session.rollback()
+            failed_dataset = await session.get(Dataset, dataset_id)
+            if not failed_dataset:
+                raise RuntimeError("Dataset disappeared while recording ingestion failure")
+            failed_dataset.status = "failed"
+            failed_dataset.ingestion_error = (
+                "Sherlock could not ingest this file. Check the file structure and try a new upload."
+            )
             await session.commit()
-            await session.refresh(dataset)
-            return dataset
+            await session.refresh(failed_dataset)
+            return failed_dataset
 
     def _read_upload(self, upload_session: UploadSession, raw: bytes) -> pd.DataFrame:
         if upload_session.file_extension == "csv":
