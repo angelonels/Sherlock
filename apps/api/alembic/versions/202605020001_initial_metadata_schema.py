@@ -162,7 +162,7 @@ def upgrade() -> None:
         sa.Column("sample_values", postgresql.JSONB(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.CheckConstraint(
-            "issue_type IN ('missing_values', 'exact_duplicates_removed', 'high_missing_ratio', 'mostly_empty_column', 'constant_column', 'high_cardinality_text', 'mixed_type_values', 'date_parse_failures', 'numeric_parse_failures', 'formula_like_values_detected', 'wide_cells_detected')",
+            "issue_type IN ('missing_values', 'exact_duplicates_removed', 'high_missing_ratio', 'mostly_empty_column', 'constant_column', 'high_cardinality_text', 'mixed_type_values', 'date_parse_failures', 'numeric_parse_failures', 'formula_like_values_detected', 'wide_cells_detected', 'pii_like_values_detected')",
             name="ck_dataset_quality_issues_issue_type",
         ),
         sa.CheckConstraint("severity IN ('info', 'warning', 'critical')", name="ck_dataset_quality_issues_severity"),
@@ -377,4 +377,3 @@ def downgrade() -> None:
     op.execute("DROP SCHEMA IF EXISTS user_data CASCADE")
     op.execute("DROP EXTENSION IF EXISTS vector")
     op.execute("DROP EXTENSION IF EXISTS pgcrypto")
-
