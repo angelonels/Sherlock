@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DatasetCreate(BaseModel):
@@ -43,6 +43,7 @@ class DatasetColumnRead(BaseModel):
     nullable_ratio: float = 0
     distinct_count: int | None = None
     sample_values: list[Any] | None = None
+    warning_flags: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
