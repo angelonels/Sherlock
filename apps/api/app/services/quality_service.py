@@ -1,8 +1,43 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pandas as pd
+
+
+PII_COLUMN_HINTS = {
+    "email",
+    "e_mail",
+    "phone",
+    "mobile",
+    "ssn",
+    "social_security",
+    "passport",
+    "dob",
+    "date_of_birth",
+    "address",
+}
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+PHONE_RE = re.compile(r"^\+?[\d\s().-]{7,}$")
+SSN_RE = re.compile(r"^\d{3}-\d{2}-\d{4}$")
+
+
+def pii_warning_flags(profile: dict[str, Any]) -> list[str]:
+    column_name = str(profile["column_name"]).lower()
+    original_name = str(profile["original_column_name"]).lower()
+    flags: list[str] = []
+    if any(hint in column_name or hint in original_name for hint in PII_COLUMN_HINTS):
+        flags.append("pii_like_column_name")
+
+    samples = [str(value).strip() for value in profile.get("sample_values") or [] if value is not None]
+    if any(EMAIL_RE.match(value) for value in samples):
+        flags.append("pii_like_email_values")
+    if any(PHONE_RE.match(value) for value in samples):
+        flags.append("pii_like_phone_values")
+    if any(SSN_RE.match(value) for value in samples):
+        flags.append("pii_like_ssn_values")
+    return list(dict.fromkeys(flags))
 
 
 def build_quality_issues(
@@ -26,6 +61,24 @@ def build_quality_issues(
         )
 
     for profile in column_profiles:
+        pii_flags = pii_warning_flags(profile)
+        if pii_flags:
+            warning_flags = list(dict.fromkeys([*profile.get("warning_flags", []), *pii_flags]))
+            profile["warning_flags"] = warning_flags
+            issues.append(
+                {
+                    "issue_type": "pii_like_values_detected",
+                    "severity": "warning",
+                    "title": f"PII-like values detected in {profile['column_name']}",
+                    "description": (
+                        f"{profile['column_name']} looks like it may contain personal data. "
+                        "Sherlock will allow analysis, but answers should be reviewed carefully before sharing."
+                    ),
+                    "affected_row_count": None,
+                    "affected_ratio": None,
+                    "sample_values": profile.get("sample_values"),
+                }
+            )
         if profile["nullable_count"] > 0:
             issue_type = "high_missing_ratio" if profile["nullable_ratio"] >= 0.4 else "missing_values"
             issues.append(

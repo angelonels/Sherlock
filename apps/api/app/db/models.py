@@ -10,7 +10,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    String,
     Text,
     UniqueConstraint,
     func,
@@ -227,7 +226,7 @@ class DatasetQualityIssue(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "issue_type IN ('missing_values', 'exact_duplicates_removed', 'high_missing_ratio', 'mostly_empty_column', 'constant_column', 'high_cardinality_text', 'mixed_type_values', 'date_parse_failures', 'numeric_parse_failures', 'formula_like_values_detected', 'wide_cells_detected')",
+            "issue_type IN ('missing_values', 'exact_duplicates_removed', 'high_missing_ratio', 'mostly_empty_column', 'constant_column', 'high_cardinality_text', 'mixed_type_values', 'date_parse_failures', 'numeric_parse_failures', 'formula_like_values_detected', 'wide_cells_detected', 'pii_like_values_detected')",
             name="ck_dataset_quality_issues_issue_type",
         ),
         CheckConstraint(
