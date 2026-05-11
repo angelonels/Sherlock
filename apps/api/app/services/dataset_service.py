@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -12,9 +13,16 @@ from app.core.errors import ApiError
 from app.db.models import AppUser, Dataset, DatasetColumn, DatasetQualityIssue, UploadSession
 from app.schemas.dataset import DatasetCreate
 from app.services.ingestion_service import quote_ident
+from app.services.job_dispatcher import JobDispatcher
+
+
+logger = logging.getLogger("sherlock.datasets")
 
 
 class DatasetService:
+    def __init__(self, dispatcher: JobDispatcher | None = None) -> None:
+        self.dispatcher = dispatcher or JobDispatcher()
+
     async def create_dataset(
         self,
         session: AsyncSession,
@@ -48,14 +56,29 @@ class DatasetService:
             physical_table_name=f"dataset_pending_{uuid.uuid4().hex}",
             status="processing",
         )
+        if selected_sheet and upload_session.selected_sheet_name != selected_sheet:
+            upload_session.selected_sheet_name = selected_sheet
         session.add(dataset)
         await session.commit()
         await session.refresh(dataset)
 
-        if selected_sheet and upload_session.selected_sheet_name != selected_sheet:
-            upload_session.selected_sheet_name = selected_sheet
+        try:
+            self.dispatcher.enqueue_dataset_ingestion(dataset.id)
+        except Exception:
+            logger.exception(
+                "dataset ingestion dispatch failed",
+                extra={
+                    "job_name": "ingest_dataset",
+                    "user_id": str(user.id),
+                    "dataset_id": str(dataset.id),
+                    "status": "failed",
+                    "error_code": "DATASET_DISPATCH_FAILED",
+                },
+            )
+            dataset.status = "failed"
+            dataset.ingestion_error = "Sherlock could not start ingestion. Try creating the dataset again."
             await session.commit()
-
+            await session.refresh(dataset)
         return dataset
 
     async def get_dataset(self, session: AsyncSession, dataset_id: uuid.UUID, user: AppUser) -> Dataset:
@@ -99,9 +122,12 @@ class DatasetService:
             raise ApiError(status_code=status.HTTP_409_CONFLICT, code="DATASET_NOT_READY", message="Dataset preview is available once ingestion is ready.")
         safe_limit = min(max(limit, 1), 100)
         where = "WHERE _sherlock_row_id > :cursor" if cursor else ""
+        columns = await self.list_columns(session, dataset)
+        selected_columns = ["_sherlock_row_id", *(column.column_name for column in columns)]
         result = await session.execute(
             text(
-                f"SELECT * FROM user_data.{quote_ident(dataset.physical_table_name)} {where} "
+                f"SELECT {', '.join(quote_ident(column) for column in selected_columns)} "
+                f"FROM user_data.{quote_ident(dataset.physical_table_name)} {where} "
                 "ORDER BY _sherlock_row_id ASC LIMIT :limit"
             ),
             {"cursor": cursor or 0, "limit": safe_limit + 1},
