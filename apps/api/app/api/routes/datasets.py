@@ -77,13 +77,12 @@ async def list_dataset_quality_issues(
 async def read_dataset_preview(
     dataset_id: uuid.UUID,
     limit: int = 100,
-    cursor: str | None = None,
+    cursor: int | None = None,
     user: AppUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, object]:
     dataset = await dataset_service.get_dataset(session, dataset_id, user)
-    parsed_cursor = int(cursor) if cursor else None
-    rows, next_cursor = await dataset_service.preview(session, dataset, limit=limit, cursor=parsed_cursor)
+    rows, next_cursor = await dataset_service.preview(session, dataset, limit=limit, cursor=cursor)
     return {"data": rows, "pagination": {"next_cursor": next_cursor}}
 
 
