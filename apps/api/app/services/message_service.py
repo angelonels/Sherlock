@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import status
 from sqlalchemy import func, select
@@ -11,9 +13,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import ApiError
 from app.db.models import AnalysisRun, AppUser, ChatMessage, ChatSession
 from app.schemas.message import MessageCreate
+from app.services.job_dispatcher import JobDispatcher
+
+
+logger = logging.getLogger("sherlock.messages")
 
 
 class MessageService:
+    def __init__(self, dispatcher: JobDispatcher | None = None) -> None:
+        self.dispatcher = dispatcher or JobDispatcher()
+
     async def list_messages(self, session: AsyncSession, chat_id: uuid.UUID, user: AppUser) -> list[ChatMessage]:
         await self._get_chat(session, chat_id, user)
         result = await session.execute(
@@ -34,7 +43,7 @@ class MessageService:
     ) -> tuple[ChatMessage, AnalysisRun]:
         if not idempotency_key:
             raise ApiError(status_code=status.HTTP_400_BAD_REQUEST, code="IDEMPOTENCY_KEY_REQUIRED", message="Idempotency-Key header is required.")
-        await self._get_chat(session, chat_id, user)
+        await self._get_chat(session, chat_id, user, for_update=True)
         body_hash = self._hash_body(payload)
 
         existing = await session.execute(
@@ -73,12 +82,44 @@ class MessageService:
         await session.commit()
         await session.refresh(message)
         await session.refresh(run)
+        try:
+            self.dispatcher.enqueue_analysis_run(run.id)
+        except Exception:
+            logger.exception(
+                "analysis dispatch failed",
+                extra={
+                    "job_name": "run_analysis",
+                    "chat_id": str(chat_id),
+                    "analysis_run_id": str(run.id),
+                    "status": "failed",
+                    "error_code": "ANALYSIS_DISPATCH_FAILED",
+                },
+            )
+            run.status = "failed"
+            run.current_stage = "failed"
+            run.error_code = "ANALYSIS_DISPATCH_FAILED"
+            run.error_message = "Sherlock could not start this analysis. Try asking the question again."
+            run.completed_at = datetime.now(UTC)
+            await session.commit()
+            await session.refresh(run)
         return message, run
 
-    async def _get_chat(self, session: AsyncSession, chat_id: uuid.UUID, user: AppUser) -> ChatSession:
-        result = await session.execute(
-            select(ChatSession).where(ChatSession.id == chat_id, ChatSession.user_id == user.id, ChatSession.deleted_at.is_(None))
+    async def _get_chat(
+        self,
+        session: AsyncSession,
+        chat_id: uuid.UUID,
+        user: AppUser,
+        *,
+        for_update: bool = False,
+    ) -> ChatSession:
+        statement = select(ChatSession).where(
+            ChatSession.id == chat_id,
+            ChatSession.user_id == user.id,
+            ChatSession.deleted_at.is_(None),
         )
+        if for_update:
+            statement = statement.with_for_update()
+        result = await session.execute(statement)
         chat = result.scalar_one_or_none()
         if not chat:
             raise ApiError(status_code=status.HTTP_404_NOT_FOUND, code="NOT_FOUND", message="Chat not found.")
