@@ -20,6 +20,7 @@ async def run_worker() -> None:
         await analysis_worker.run_once()
         async with SessionLocal() as session:
             await maintenance.cleanup_expired_upload_sessions(session, settings)
+            await maintenance.cleanup_ingested_upload_files(session, settings)
             await maintenance.fail_stuck_analysis_runs(session)
         await asyncio.sleep(30)
 
