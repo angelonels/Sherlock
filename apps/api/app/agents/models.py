@@ -11,6 +11,42 @@ class QueryPlan(BaseModel):
     sql: str
 
 
+class DatasetContext(BaseModel):
+    id: str
+    name: str
+    physical_schema_name: str
+    physical_table_name: str
+    row_count: int
+    column_count: int
+    quality_status: str | None = None
+
+
+class DatasetColumnContext(BaseModel):
+    column_name: str
+    original_column_name: str
+    column_index: int
+    postgres_type: str
+    pandas_type: str | None = None
+    semantic_type: str
+    nullable_count: int = 0
+    nullable_ratio: float = 0
+    distinct_count: int | None = None
+    sample_values: list[Any] | None = None
+    min_value: str | None = None
+    max_value: str | None = None
+    warning_flags: list[str] = Field(default_factory=list)
+
+
+class DatasetQualityIssueContext(BaseModel):
+    issue_type: str
+    severity: str
+    title: str
+    description: str
+    affected_row_count: int | None = None
+    affected_ratio: float | None = None
+    sample_values: list[Any] | None = None
+
+
 class QueryFailure(BaseModel):
     step_index: int
     error: str
