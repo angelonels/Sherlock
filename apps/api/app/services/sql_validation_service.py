@@ -22,7 +22,19 @@ BLOCKED_KEYWORDS = {
     "call",
 }
 BLOCKED_SCHEMAS = {"public", "information_schema", "pg_catalog"}
-UNSAFE_FUNCTIONS = {"pg_sleep", "dblink", "lo_import", "lo_export"}
+UNSAFE_FUNCTIONS = {
+    "current_setting",
+    "dblink",
+    "lo_export",
+    "lo_import",
+    "pg_ls_dir",
+    "pg_read_binary_file",
+    "pg_read_file",
+    "pg_sleep",
+    "pg_stat_file",
+    "query_to_xml",
+    "set_config",
+}
 
 
 @dataclass(frozen=True)
@@ -55,6 +67,7 @@ class SqlValidationService:
             return SqlValidationResult(False, error="Only SELECT and WITH queries are allowed.")
 
         cte_names = {cte.alias for cte in expression.find_all(exp.CTE) if cte.alias}
+        dataset_table_seen = False
         for table in expression.find_all(exp.Table):
             schema = table.db
             name = table.name
@@ -64,6 +77,10 @@ class SqlValidationService:
                 return SqlValidationResult(False, error=f"Schema {schema} is not allowed.")
             if schema != "user_data" or name != table_name:
                 return SqlValidationResult(False, error="Query can only read the current dataset table.")
+            dataset_table_seen = True
+
+        if not dataset_table_seen:
+            return SqlValidationResult(False, error="Query must read the current dataset table.")
 
         for func in expression.find_all(exp.Func):
             if func.sql_name().lower() in UNSAFE_FUNCTIONS:

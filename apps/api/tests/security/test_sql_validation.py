@@ -42,6 +42,8 @@ def test_writes_multiple_statements_comments_and_unknown_columns_rejected() -> N
         'SELECT revenue FROM user_data."dataset_abc" -- hidden',
         'SELECT unknown FROM user_data."dataset_abc"',
         'SELECT pg_sleep(1) FROM user_data."dataset_abc"',
+        "SELECT current_setting('server_version')",
+        "SELECT 1",
     ]
 
     for sql in checks:
