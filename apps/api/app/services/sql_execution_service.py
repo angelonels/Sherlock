@@ -5,15 +5,18 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.core.database import engine
+from app.core.database import readonly_engine
 
 
 class SqlExecutionService:
+    def __init__(self, execution_engine: AsyncEngine | None = None) -> None:
+        self.execution_engine = execution_engine or readonly_engine
+
     async def execute_readonly(self, session: AsyncSession, sql: str) -> dict[str, Any]:
         _ = session
-        async with engine.connect() as connection:
+        async with self.execution_engine.connect() as connection:
             transaction = await connection.begin()
             try:
                 await connection.execute(text("SET TRANSACTION READ ONLY"))
