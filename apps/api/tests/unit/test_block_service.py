@@ -27,3 +27,18 @@ def test_production_filter_removes_debug_blocks() -> None:
     blocks = [{"type": "markdown", "content": "ok"}, {"type": "sql", "content": "SELECT 1"}]
 
     assert BlockService().filter_for_environment(blocks, "production") == [{"type": "markdown", "content": "ok"}]
+
+
+def test_safe_validate_blocks_converts_malformed_blocks_to_error_block() -> None:
+    blocks = BlockService().safe_validate_blocks(
+        [{"type": "table", "columns": ["name"]}],
+        fallback_content="Summary",
+    )
+
+    assert blocks == [
+        {
+            "type": "error",
+            "title": "Response block could not be displayed",
+            "message": "Sherlock produced part of the response in an unsupported format.",
+        }
+    ]

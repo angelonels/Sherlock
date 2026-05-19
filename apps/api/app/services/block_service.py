@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 
 class MarkdownBlock(BaseModel):
@@ -65,6 +65,23 @@ class BlockService:
     def validate_blocks(self, blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [self.validate_block(block) for block in blocks]
 
+    def safe_validate_blocks(self, blocks: list[dict[str, Any]], *, fallback_content: str) -> list[dict[str, Any]]:
+        safe_blocks: list[dict[str, Any]] = []
+        for block in blocks:
+            try:
+                safe_blocks.append(self.validate_block(block))
+            except ValidationError:
+                safe_blocks.append(
+                    ErrorBlock(
+                        type="error",
+                        title="Response block could not be displayed",
+                        message="Sherlock produced part of the response in an unsupported format.",
+                    ).model_dump()
+                )
+        if not safe_blocks:
+            safe_blocks.append(MarkdownBlock(type="markdown", content=fallback_content).model_dump())
+        return safe_blocks
+
     def filter_for_environment(self, blocks: list[dict[str, Any]], app_env: str) -> list[dict[str, Any]]:
         if app_env != "production":
             return blocks
@@ -92,4 +109,4 @@ class BlockService:
             blocks.append({"type": "quality_note", **quality_note})
         if suggestions:
             blocks.append({"type": "suggestions", "suggestions": suggestions})
-        return self.validate_blocks(blocks)
+        return self.safe_validate_blocks(blocks, fallback_content=content)
