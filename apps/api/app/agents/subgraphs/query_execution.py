@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import inspect
+
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.models import QueryPlan, QueryResultSummary
-from app.db.models import Dataset, DatasetColumn, QueryAttempt
+from app.db.models import DatasetColumn, QueryAttempt
+from app.services.sql_repair_service import SqlRepairService
 from app.services.sql_execution_service import SqlExecutionService
 from app.services.sql_validation_service import SqlValidationService
 
@@ -21,24 +24,26 @@ class QueryExecutionSubgraph:
     ) -> None:
         self.validator = validator or SqlValidationService()
         self.executor = executor or SqlExecutionService()
-        self.repair_service = repair_service
+        self.repair_service = repair_service or SqlRepairService()
         self.max_repair_attempts = max_repair_attempts
 
     async def run(
         self,
         session: AsyncSession,
         *,
-        dataset: Dataset,
+        dataset_id,
+        physical_table_name: str,
         analysis_run_id,
         plan: QueryPlan,
     ) -> QueryResultSummary:
-        columns_result = await session.execute(select(DatasetColumn.column_name).where(DatasetColumn.dataset_id == dataset.id))
+        columns_result = await session.execute(select(DatasetColumn.column_name).where(DatasetColumn.dataset_id == dataset_id))
         allowed_columns = set(columns_result.scalars().all())
         candidate_sql = plan.sql
         last_error = None
+        repair_reason = None
 
         for attempt_number in range(1, self.max_repair_attempts + 2):
-            validation = self.validator.validate(candidate_sql, table_name=dataset.physical_table_name, allowed_columns=allowed_columns)
+            validation = self.validator.validate(candidate_sql, table_name=physical_table_name, allowed_columns=allowed_columns)
             if not validation.is_valid:
                 last_error = validation.error
                 await self._record_attempt(
@@ -50,11 +55,21 @@ class QueryExecutionSubgraph:
                     generated_sql=candidate_sql,
                     validation_status="invalid",
                     execution_status="not_run",
+                    repair_reason=repair_reason,
                     error_message=last_error,
                 )
                 if attempt_number > self.max_repair_attempts:
                     break
-                candidate_sql = self._repair(candidate_sql, dataset.physical_table_name)
+                repaired_sql = await self._repair(
+                    candidate_sql,
+                    error=last_error or "SQL validation failed.",
+                    table_name=physical_table_name,
+                    allowed_columns=allowed_columns,
+                )
+                if not repaired_sql:
+                    break
+                candidate_sql = repaired_sql
+                repair_reason = last_error
                 continue
 
             try:
@@ -69,6 +84,7 @@ class QueryExecutionSubgraph:
                     validated_sql=validation.sql,
                     validation_status="valid",
                     execution_status="success",
+                    repair_reason=repair_reason,
                     row_count=result["row_count"],
                     result_columns=result["columns"],
                     result_preview=result["rows"][:25],
@@ -95,18 +111,36 @@ class QueryExecutionSubgraph:
                     validated_sql=validation.sql,
                     validation_status="valid",
                     execution_status="failed",
+                    repair_reason=repair_reason,
                     error_message=last_error,
                 )
                 if attempt_number > self.max_repair_attempts:
                     break
-                candidate_sql = self._repair(candidate_sql, dataset.physical_table_name)
+                repaired_sql = await self._repair(
+                    candidate_sql,
+                    error=last_error,
+                    table_name=physical_table_name,
+                    allowed_columns=allowed_columns,
+                )
+                if not repaired_sql:
+                    break
+                candidate_sql = repaired_sql
+                repair_reason = last_error
 
         return QueryResultSummary(step_index=plan.step_index, purpose=plan.purpose, status="failed", sql=candidate_sql, error=last_error)
 
-    def _repair(self, sql: str, table_name: str) -> str:
+    async def _repair(self, sql: str, *, error: str, table_name: str, allowed_columns: set[str]) -> str | None:
         if self.repair_service and hasattr(self.repair_service, "repair"):
-            return self.repair_service.repair(sql)
-        return f'SELECT COUNT(*) AS row_count FROM user_data."{table_name}"'
+            result = self.repair_service.repair(
+                sql,
+                error=error,
+                table_name=table_name,
+                allowed_columns=allowed_columns,
+            )
+            if inspect.isawaitable(result):
+                return await result
+            return result
+        return None
 
     async def _record_attempt(self, session: AsyncSession, **values) -> None:
         stmt = insert(QueryAttempt).values(**values)
