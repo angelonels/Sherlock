@@ -1,6 +1,7 @@
 "use client";
 
 import type { ChartSpec } from "@/lib/types";
+import { ChartContainer, ChartTooltip } from "@/components/ui/chart";
 import {
   Area,
   AreaChart,
@@ -12,10 +13,8 @@ import {
   LineChart,
   Pie,
   PieChart,
-  ResponsiveContainer,
   Scatter,
   ScatterChart,
-  Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
@@ -50,25 +49,25 @@ export function KpiChartBlock({ spec }: { spec: ChartSpec }) {
 }
 
 export function LineChartBlock({ spec }: { spec: ChartSpec }) {
-  return <CartesianFrame title={spec.title}><LineChart data={spec.data}><Grid /><XAxis dataKey={spec.x_key ?? ""} /><YAxis /><Tooltip /><Line type="monotone" dataKey={spec.y_key ?? ""} stroke="#9d5728" strokeWidth={2} dot={false} /></LineChart></CartesianFrame>;
+  return <CartesianFrame title={spec.title}><LineChart data={spec.data}><Grid /><XAxis dataKey={spec.x_key ?? ""} /><YAxis /><ChartTooltip /><Line type="monotone" dataKey={spec.y_key ?? ""} stroke="#9d5728" strokeWidth={2} dot={false} /></LineChart></CartesianFrame>;
 }
 
 export function BarChartBlock({ spec }: { spec: ChartSpec }) {
-  return <CartesianFrame title={spec.title}><BarChart data={spec.data}><Grid /><XAxis dataKey={spec.x_key ?? ""} /><YAxis /><Tooltip /><Bar dataKey={spec.y_key ?? ""} fill="#9d5728" /></BarChart></CartesianFrame>;
+  return <CartesianFrame title={spec.title}><BarChart data={spec.data}><Grid /><XAxis dataKey={spec.x_key ?? ""} /><YAxis /><ChartTooltip /><Bar dataKey={spec.y_key ?? ""} fill="#9d5728" /></BarChart></CartesianFrame>;
 }
 
 export function HorizontalBarChartBlock({ spec }: { spec: ChartSpec }) {
-  return <CartesianFrame title={spec.title}><BarChart data={spec.data} layout="vertical"><Grid /><XAxis type="number" /><YAxis type="category" dataKey={spec.x_key ?? ""} width={120} /><Tooltip /><Bar dataKey={spec.y_key ?? ""} fill="#9d5728" /></BarChart></CartesianFrame>;
+  return <CartesianFrame title={spec.title}><BarChart data={spec.data} layout="vertical"><Grid /><XAxis type="number" /><YAxis type="category" dataKey={spec.x_key ?? ""} width={120} /><ChartTooltip /><Bar dataKey={spec.y_key ?? ""} fill="#9d5728" /></BarChart></CartesianFrame>;
 }
 
 export function StackedBarChartBlock({ spec }: { spec: ChartSpec }) {
   const series = Array.from(new Set(spec.data.map((row) => String(row[spec.series_key ?? "series"] ?? "Series"))));
   const pivoted = pivot(spec, series);
-  return <CartesianFrame title={spec.title}><BarChart data={pivoted}><Grid /><XAxis dataKey={spec.x_key ?? ""} /><YAxis /><Tooltip />{series.map((item, index) => <Bar key={item} dataKey={item} stackId="a" fill={COLORS[index % COLORS.length]} />)}</BarChart></CartesianFrame>;
+  return <CartesianFrame title={spec.title}><BarChart data={pivoted}><Grid /><XAxis dataKey={spec.x_key ?? ""} /><YAxis /><ChartTooltip />{series.map((item, index) => <Bar key={item} dataKey={item} stackId="a" fill={COLORS[index % COLORS.length]} />)}</BarChart></CartesianFrame>;
 }
 
 export function AreaChartBlock({ spec }: { spec: ChartSpec }) {
-  return <CartesianFrame title={spec.title}><AreaChart data={spec.data}><Grid /><XAxis dataKey={spec.x_key ?? ""} /><YAxis /><Tooltip /><Area type="monotone" dataKey={spec.y_key ?? ""} stroke="#4f6f52" fill="#dbe8d8" /></AreaChart></CartesianFrame>;
+  return <CartesianFrame title={spec.title}><AreaChart data={spec.data}><Grid /><XAxis dataKey={spec.x_key ?? ""} /><YAxis /><ChartTooltip /><Area type="monotone" dataKey={spec.y_key ?? ""} stroke="#4f6f52" fill="#dbe8d8" /></AreaChart></CartesianFrame>;
 }
 
 export function PieChartBlock({ spec }: { spec: ChartSpec }) {
@@ -80,7 +79,7 @@ export function DonutChartBlock({ spec }: { spec: ChartSpec }) {
 }
 
 export function ScatterChartBlock({ spec }: { spec: ChartSpec }) {
-  return <CartesianFrame title={spec.title}><ScatterChart><Grid /><XAxis dataKey={spec.x_key ?? ""} name={spec.x_key ?? ""} /><YAxis dataKey={spec.y_key ?? ""} name={spec.y_key ?? ""} /><Tooltip cursor={{ strokeDasharray: "3 3" }} /><Scatter data={spec.data} fill="#9d5728" /></ScatterChart></CartesianFrame>;
+  return <CartesianFrame title={spec.title}><ScatterChart><Grid /><XAxis dataKey={spec.x_key ?? ""} name={spec.x_key ?? ""} /><YAxis dataKey={spec.y_key ?? ""} name={spec.y_key ?? ""} /><ChartTooltip cursor={{ strokeDasharray: "3 3" }} /><Scatter data={spec.data} fill="#9d5728" /></ScatterChart></CartesianFrame>;
 }
 
 export function HistogramChartBlock({ spec }: { spec: ChartSpec }) {
@@ -88,7 +87,7 @@ export function HistogramChartBlock({ spec }: { spec: ChartSpec }) {
 }
 
 function CartesianFrame({ title, children }: { title: string; children: React.ReactElement }) {
-  return <div className="border border-[#d9cdbf] bg-[#fbf7f1] p-3"><p className="mb-3 text-sm font-semibold text-[#51473f]">{title}</p><div className="h-72"><ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer></div></div>;
+  return <div className="border border-[#d9cdbf] bg-[#fbf7f1] p-3"><p className="mb-3 text-sm font-semibold text-[#51473f]">{title}</p><ChartContainer config={{}} className="h-72 w-full">{children}</ChartContainer></div>;
 }
 
 function Grid() {
@@ -98,7 +97,7 @@ function Grid() {
 function PieFrame({ spec, innerRadius }: { spec: ChartSpec; innerRadius: number }) {
   const labelKey = spec.label_key ?? spec.x_key ?? "label";
   const valueKey = spec.value_key ?? spec.y_key ?? "value";
-  return <div className="border border-[#d9cdbf] bg-[#fbf7f1] p-3"><p className="mb-3 text-sm font-semibold text-[#51473f]">{spec.title}</p><div className="h-72"><ResponsiveContainer width="100%" height="100%"><PieChart><Tooltip /><Pie data={spec.data} dataKey={valueKey} nameKey={labelKey} innerRadius={innerRadius}>{spec.data.map((_, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}</Pie></PieChart></ResponsiveContainer></div></div>;
+  return <div className="border border-[#d9cdbf] bg-[#fbf7f1] p-3"><p className="mb-3 text-sm font-semibold text-[#51473f]">{spec.title}</p><ChartContainer config={{}} className="h-72 w-full"><PieChart><ChartTooltip /><Pie data={spec.data} dataKey={valueKey} nameKey={labelKey} innerRadius={innerRadius}>{spec.data.map((_, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}</Pie></PieChart></ChartContainer></div>;
 }
 
 function pivot(spec: ChartSpec, series: string[]) {
