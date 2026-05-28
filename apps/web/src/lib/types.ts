@@ -85,6 +85,7 @@ export type DatasetColumn = {
   nullable_ratio: number;
   distinct_count: number | null;
   sample_values: unknown[] | null;
+  warning_flags: string[];
 };
 
 export type DatasetQualityIssue = {

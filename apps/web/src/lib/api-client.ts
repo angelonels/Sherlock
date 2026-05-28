@@ -76,11 +76,18 @@ export class ApiClient {
       }
     }
 
-    const response = await this.fetcher(joinUrl(this.baseUrl, path), {
-      method: options.method ?? "GET",
-      headers,
-      body,
-    });
+    let response: Response;
+    try {
+      response = await this.fetcher(joinUrl(this.baseUrl, path), {
+        method: options.method ?? "GET",
+        headers,
+        body,
+        cache: "no-store",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Network request failed";
+      throw new Error(`Cannot reach Sherlock API at ${this.baseUrl}. Check that the API is running and allowed for this browser origin. ${message}`);
+    }
 
     const payload = response.status === 204 ? null : await response.json();
     if (!response.ok) {
@@ -120,6 +127,10 @@ export class ApiClient {
       method: "PATCH",
       body: { selected_sheet_name: selectedSheetName },
     });
+  }
+
+  async getUploadSession(uploadSessionId: string): Promise<UploadSession> {
+    return this.getData<UploadSession>(`/upload-sessions/${uploadSessionId}`);
   }
 
   async deleteUploadSession(uploadSessionId: string): Promise<void> {
