@@ -1,44 +1,83 @@
 "use client";
 
 import type { DatasetColumn, DatasetQualityIssue } from "@/lib/types";
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type ColumnDef,
+} from "@tanstack/react-table";
 
-export function DatasetPreviewTab({
-  rows,
-  onLoadNext,
-  hasNextPage,
+function DataTable<TData>({
+  data,
+  columns,
+  minWidth = "40rem",
 }: {
-  rows: Record<string, unknown>[];
-  onLoadNext?: () => void;
-  hasNextPage?: boolean;
+  data: TData[];
+  columns: ColumnDef<TData>[];
+  minWidth?: string;
 }) {
-  const columns = rows[0] ? Object.keys(rows[0]) : [];
+  // TanStack Table intentionally exposes mutable helpers; React Compiler skips this component.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const table = useReactTable({
+    data,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+  });
+
   return (
-    <section className="overflow-x-auto border border-[#d9cdbf] bg-[#fffaf7]">
-      <table className="w-full min-w-[40rem] text-left text-sm">
+    <div className="overflow-x-auto border border-[#d9cdbf] bg-[#fffaf7]">
+      <table className="w-full text-left text-sm" style={{ minWidth }}>
         <thead>
-          <tr>
-            {columns.map((column) => (
-              <th key={column} className="border-b border-[#d9cdbf] px-3 py-2 font-semibold text-[#51473f]">
-                {column}
-              </th>
-            ))}
-          </tr>
+          {table.getHeaderGroups().map((headerGroup) => (
+            <tr key={headerGroup.id}>
+              {headerGroup.headers.map((header) => (
+                <th key={header.id} className="border-b border-[#d9cdbf] px-3 py-2 font-semibold text-[#51473f]">
+                  {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                </th>
+              ))}
+            </tr>
+          ))}
         </thead>
         <tbody>
-          {rows.map((row, index) => (
-            <tr key={index} className="border-b border-[#eee4d8]">
-              {columns.map((column) => (
-                <td key={column} className="max-w-72 truncate px-3 py-2 text-[#655c52]">
-                  {String(row[column] ?? "")}
+          {table.getRowModel().rows.map((row) => (
+            <tr key={row.id} className="border-b border-[#eee4d8]">
+              {row.getVisibleCells().map((cell) => (
+                <td key={cell.id} className="max-w-72 truncate px-3 py-2 text-[#655c52]">
+                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>
               ))}
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+export function DatasetPreviewTab({
+  rows,
+  onLoadNext,
+  hasNextPage,
+  isLoadingNext = false,
+}: {
+  rows: Record<string, unknown>[];
+  onLoadNext?: () => void;
+  hasNextPage?: boolean;
+  isLoadingNext?: boolean;
+}) {
+  const columns = rows[0] ? Object.keys(rows[0]) : [];
+  const tableColumns: ColumnDef<Record<string, unknown>>[] = columns.map((column) => ({
+    accessorKey: column,
+    header: column,
+    cell: ({ getValue }) => String(getValue() ?? ""),
+  }));
+  return (
+    <section>
+      <DataTable data={rows} columns={tableColumns} />
       {hasNextPage ? (
-        <button type="button" onClick={onLoadNext} className="m-3 border border-[#d9cdbf] px-3 py-2 text-sm font-semibold">
-          Load next rows
+        <button type="button" onClick={onLoadNext} disabled={isLoadingNext} className="m-3 border border-[#d9cdbf] px-3 py-2 text-sm font-semibold disabled:opacity-60">
+          {isLoadingNext ? "Loading rows" : "Load next rows"}
         </button>
       ) : null}
     </section>
@@ -46,30 +85,27 @@ export function DatasetPreviewTab({
 }
 
 export function DatasetSchemaTab({ columns }: { columns: DatasetColumn[] }) {
+  const tableColumns: ColumnDef<DatasetColumn>[] = [
+    { accessorKey: "column_name", header: "Column" },
+    { accessorKey: "semantic_type", header: "Semantic type" },
+    { accessorKey: "postgres_type", header: "Postgres type" },
+    { accessorKey: "nullable_count", header: "Missing" },
+  ];
   return (
-    <section className="grid gap-2">
-      {columns.map((column) => (
-        <div key={column.id} className="border border-[#d9cdbf] bg-[#fffaf7] px-3 py-3 text-sm">
-          <div className="font-semibold text-[#51473f]">{column.column_name}</div>
-          <div className="mt-1 text-[#655c52]">
-            {column.semantic_type} · {column.postgres_type} · {column.nullable_count} missing
-          </div>
-        </div>
-      ))}
-    </section>
+    <DataTable data={columns} columns={tableColumns} minWidth="34rem" />
   );
 }
 
 export function DatasetQualityTab({ issues }: { issues: DatasetQualityIssue[] }) {
+  const tableColumns: ColumnDef<DatasetQualityIssue>[] = [
+    { accessorKey: "severity", header: "Severity" },
+    { accessorKey: "title", header: "Issue" },
+    { accessorKey: "description", header: "Description" },
+  ];
   return (
-    <section className="grid gap-2">
+    <section>
       {issues.length === 0 ? <p className="border border-[#d9cdbf] bg-[#fffaf7] px-3 py-3 text-sm text-[#655c52]">No quality warnings.</p> : null}
-      {issues.map((issue) => (
-        <div key={issue.id} className="border border-[#d9cdbf] bg-[#fffaf7] px-3 py-3 text-sm">
-          <div className="font-semibold text-[#51473f]">{issue.title}</div>
-          <div className="mt-1 text-[#655c52]">{issue.description}</div>
-        </div>
-      ))}
+      {issues.length ? <DataTable data={issues} columns={tableColumns} minWidth="42rem" /> : null}
     </section>
   );
 }
