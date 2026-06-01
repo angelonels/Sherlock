@@ -1,34 +1,43 @@
 "use client";
 
-import { SherlockConversation, SherlockMessage, SherlockThinkingState } from "@/components/ai/sherlock-ai";
+import { SherlockConversation, SherlockMessage } from "@/components/ai/sherlock-ai";
+import { isAuthBypassEnabled, isClerkConfigured } from "@/features/auth/auth-config";
 import { DatasetPreviewTab, DatasetQualityTab, DatasetSchemaTab } from "@/features/datasets/dataset-tabs";
 import { ChatCanvas } from "@/features/chat/chat-canvas";
 import { UploadSessionStep } from "@/features/upload/upload-session-step";
 import { ApiClient } from "@/lib/api-client";
-import type { ChatSummary, DatasetColumn, DatasetQualityIssue } from "@/lib/types";
-import { useAuth } from "@clerk/nextjs";
+import type { ChatSummary } from "@/lib/types";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { useAuth, useClerk } from "@clerk/nextjs";
+import { useQuery } from "@tanstack/react-query";
 import {
   FileSpreadsheet,
+  LogOut,
   Menu,
   MessageSquareText,
   PanelLeftOpen,
   PanelRight,
   PanelRightOpen,
   Plus,
+  RefreshCw,
+  Search,
+  UserRound,
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type PointerEvent } from "react";
+import { useMemo, useState, type PointerEvent } from "react";
 
 type AppShellProps = {
   activeView?: "home" | "new" | "chat";
   chatId?: string;
   getToken?: () => Promise<string | null> | string | null;
+  onSignOut?: () => void;
 };
 
 type SidebarContentProps = {
   chats: ChatSummary[];
   isLoadingChats: boolean;
+  onSignOut: () => void;
   onClose?: () => void;
 };
 
@@ -42,7 +51,12 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function SidebarContent({ chats, isLoadingChats, onClose }: SidebarContentProps) {
+function SidebarContent({ chats, isLoadingChats, onSignOut, onClose }: SidebarContentProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const filteredChats = chats.filter((chat) =>
+    chat.title.toLocaleLowerCase().includes(searchQuery.trim().toLocaleLowerCase()),
+  );
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-3">
@@ -73,11 +87,22 @@ function SidebarContent({ chats, isLoadingChats, onClose }: SidebarContentProps)
         New Investigation
       </Link>
 
-      <section className="mt-8 min-h-0 flex-1" aria-label="Previous chats">
+      <section className="mt-8 min-h-0 flex-1" aria-label="Recent investigations">
         <div className="flex items-center gap-2 text-sm font-semibold text-[#51473f]">
           <MessageSquareText size={16} />
-          Previous chats
+          Recent investigations
         </div>
+        <label className="relative mt-3 block">
+          <span className="sr-only">Search investigations</span>
+          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8b7d70]" size={15} />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search investigations"
+            className="h-10 w-full border border-[#d9cdbf] bg-[#fffaf7] pl-9 pr-3 text-sm outline-none focus:border-[#241f1a]"
+          />
+        </label>
         <div className="mt-3 space-y-2 overflow-y-auto pb-4">
           {isLoadingChats ? (
             <p className="border border-[#d9cdbf] bg-[#fffaf7]/70 px-3 py-3 text-sm text-[#655c52]">Loading chats</p>
@@ -85,8 +110,12 @@ function SidebarContent({ chats, isLoadingChats, onClose }: SidebarContentProps)
             <p className="border border-[#d9cdbf] bg-[#fffaf7]/70 px-3 py-3 text-sm text-[#655c52]">
               No previous chats yet.
             </p>
+          ) : filteredChats.length === 0 ? (
+            <p className="border border-[#d9cdbf] bg-[#fffaf7]/70 px-3 py-3 text-sm text-[#655c52]">
+              No investigations match this search.
+            </p>
           ) : (
-            chats.map((chat) => (
+            filteredChats.map((chat) => (
               <Link
                 key={chat.id}
                 href={`/app/chat/${chat.id}`}
@@ -99,71 +128,75 @@ function SidebarContent({ chats, isLoadingChats, onClose }: SidebarContentProps)
           )}
         </div>
       </section>
+
+      <div className="mt-4 border-t border-[#d9cdbf] pt-4">
+        <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-[#8b7d70]">
+          <UserRound size={15} />
+          Account
+        </div>
+        <button
+          type="button"
+          onClick={onSignOut}
+          className="inline-flex h-11 w-full items-center justify-center gap-2 border border-[#d9cdbf] bg-[#fffaf7] px-3 text-sm font-semibold text-[#51473f] transition-colors hover:border-[#241f1a] hover:text-[#241f1a] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#b56b32]/25"
+        >
+          <LogOut size={16} />
+          Log out
+        </button>
+      </div>
     </div>
   );
 }
 
-function DatasetPanel({ apiClient, datasetId, onClose }: DatasetPanelProps) {
+export function DatasetPanel({ apiClient, datasetId, onClose }: DatasetPanelProps) {
   const [activeTab, setActiveTab] = useState<"preview" | "schema" | "quality">("preview");
-  const [previewRows, setPreviewRows] = useState<Record<string, unknown>[]>([]);
-  const [previewCursor, setPreviewCursor] = useState<string | null>(null);
-  const [columns, setColumns] = useState<DatasetColumn[]>([]);
-  const [issues, setIssues] = useState<DatasetQualityIssue[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadDatasetPanel() {
+  const [previewAppend, setPreviewAppend] = useState<{
+    datasetId: string | null;
+    rows: Record<string, unknown>[];
+    cursor: string | null;
+  }>({ datasetId: null, rows: [], cursor: null });
+  const [isLoadingNext, setIsLoadingNext] = useState(false);
+  const [nextPageError, setNextPageError] = useState<string | null>(null);
+  const panelQuery = useQuery({
+    queryKey: ["dataset-panel", datasetId],
+    enabled: Boolean(datasetId),
+    retry: false,
+    queryFn: async () => {
       if (!datasetId) {
-        setPreviewRows([]);
-        setPreviewCursor(null);
-        setColumns([]);
-        setIssues([]);
-        return;
+        throw new Error("Dataset is not selected.");
       }
+      const [preview, schema, quality] = await Promise.all([
+        apiClient.getDatasetPreview(datasetId),
+        apiClient.getDatasetColumns(datasetId),
+        apiClient.getDatasetQualityIssues(datasetId),
+      ]);
+      return { preview, schema, quality };
+    },
+  });
 
-      setIsLoading(true);
-      setError(null);
-      try {
-        const [preview, schema, quality] = await Promise.all([
-          apiClient.getDatasetPreview(datasetId),
-          apiClient.getDatasetColumns(datasetId),
-          apiClient.getDatasetQualityIssues(datasetId),
-        ]);
-        if (!mounted) {
-          return;
-        }
-        setPreviewRows(preview.data);
-        setPreviewCursor(preview.pagination.next_cursor);
-        setColumns(schema.data);
-        setIssues(quality.data);
-      } catch (panelError) {
-        if (mounted) {
-          setError(panelError instanceof Error ? panelError.message : "Dataset panel failed to load.");
-        }
-      } finally {
-        if (mounted) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void loadDatasetPanel();
-
-    return () => {
-      mounted = false;
-    };
-  }, [apiClient, datasetId]);
+  const basePreviewRows = panelQuery.data?.preview.data ?? [];
+  const basePreviewCursor = panelQuery.data?.preview.pagination.next_cursor ?? null;
+  const appendedRows = previewAppend.datasetId === datasetId ? previewAppend.rows : [];
+  const previewRows = [...basePreviewRows, ...appendedRows];
+  const previewCursor = previewAppend.datasetId === datasetId ? previewAppend.cursor : basePreviewCursor;
 
   async function loadNextPreviewRows() {
     if (!datasetId || !previewCursor) {
       return;
     }
-    const next = await apiClient.getDatasetPreview(datasetId, previewCursor);
-    setPreviewRows((rows) => [...rows, ...next.data]);
-    setPreviewCursor(next.pagination.next_cursor);
+    setIsLoadingNext(true);
+    setNextPageError(null);
+    try {
+      const next = await apiClient.getDatasetPreview(datasetId, previewCursor);
+      setPreviewAppend((current) => ({
+        datasetId,
+        rows: current.datasetId === datasetId ? [...current.rows, ...next.data] : next.data,
+        cursor: next.pagination.next_cursor,
+      }));
+    } catch (error) {
+      setNextPageError(error instanceof Error ? error.message : "Could not load more preview rows.");
+    } finally {
+      setIsLoadingNext(false);
+    }
   }
 
   return (
@@ -205,24 +238,36 @@ function DatasetPanel({ apiClient, datasetId, onClose }: DatasetPanelProps) {
           <p className="border border-[#d9cdbf] bg-[#fffaf7]/70 px-3 py-3 text-sm text-[#655c52]">
             Open a dataset-backed investigation to inspect preview rows, schema, and quality notes.
           </p>
-        ) : isLoading ? (
+        ) : panelQuery.isLoading ? (
           <p className="border border-[#d9cdbf] bg-[#fffaf7]/70 px-3 py-3 text-sm text-[#655c52]">
             Loading dataset context
           </p>
-        ) : error ? (
-          <p className="border border-[#b84b3c] bg-[#fff2ef] px-3 py-3 text-sm text-[#7d2f26]" role="alert">
-            {error}
-          </p>
+        ) : panelQuery.error ? (
+          <div className="border border-[#b84b3c] bg-[#fff2ef] px-3 py-3 text-sm text-[#7d2f26]" role="alert">
+            <p>{panelQuery.error instanceof Error ? panelQuery.error.message : "Dataset panel failed to load."}</p>
+            <button
+              type="button"
+              onClick={() => void panelQuery.refetch()}
+              className="mt-3 inline-flex h-9 items-center gap-2 border border-[#b84b3c] bg-[#fffaf7] px-3 font-semibold"
+            >
+              <RefreshCw size={14} />
+              Retry
+            </button>
+          </div>
         ) : activeTab === "preview" ? (
-          <DatasetPreviewTab
-            rows={previewRows}
-            hasNextPage={Boolean(previewCursor)}
-            onLoadNext={() => void loadNextPreviewRows()}
-          />
+          <>
+            <DatasetPreviewTab
+              rows={previewRows}
+              hasNextPage={Boolean(previewCursor)}
+              isLoadingNext={isLoadingNext}
+              onLoadNext={() => void loadNextPreviewRows()}
+            />
+            {nextPageError ? <p className="mt-3 text-sm text-[#7d2f26]" role="alert">{nextPageError}</p> : null}
+          </>
         ) : activeTab === "schema" ? (
-          <DatasetSchemaTab columns={columns} />
+          <DatasetSchemaTab columns={panelQuery.data?.schema.data ?? []} />
         ) : (
-          <DatasetQualityTab issues={issues} />
+          <DatasetQualityTab issues={panelQuery.data?.quality.data ?? []} />
         )}
       </div>
     </div>
@@ -230,12 +275,23 @@ function DatasetPanel({ apiClient, datasetId, onClose }: DatasetPanelProps) {
 }
 
 export function AuthenticatedAppShell(props: Omit<AppShellProps, "getToken">) {
-  const { getToken } = useAuth();
+  if (isAuthBypassEnabled()) {
+    return <AppShell {...props} getToken={() => null} />;
+  }
+  if (!isClerkConfigured()) {
+    return null;
+  }
 
-  return <AppShell {...props} getToken={getToken} />;
+  return <ClerkAuthenticatedAppShell {...props} />;
 }
 
-export function AppShell({ activeView = "home", chatId, getToken }: AppShellProps) {
+function ClerkAuthenticatedAppShell(props: Omit<AppShellProps, "getToken">) {
+  const { getToken } = useAuth();
+  const { signOut } = useClerk();
+  return <AppShell {...props} getToken={getToken} onSignOut={() => void signOut({ redirectUrl: "/" })} />;
+}
+
+export function AppShell({ activeView = "home", chatId, getToken, onSignOut }: AppShellProps) {
   const [isChatSidebarOpen, setIsChatSidebarOpen] = useState(true);
   const [isDatasetPanelOpen, setIsDatasetPanelOpen] = useState(true);
   const [isMobileChatDrawerOpen, setIsMobileChatDrawerOpen] = useState(false);
@@ -243,27 +299,18 @@ export function AppShell({ activeView = "home", chatId, getToken }: AppShellProp
   const [chatSidebarWidth, setChatSidebarWidth] = useState(288);
   const [datasetPanelWidth, setDatasetPanelWidth] = useState(360);
   const [activeDatasetId, setActiveDatasetId] = useState<string | null>(null);
-  const [chats, setChats] = useState<ChatSummary[]>([]);
-  const [isLoadingChats, setIsLoadingChats] = useState(true);
   const apiClient = useMemo(() => new ApiClient({ getToken }), [getToken]);
-
-  const refreshChats = useCallback(async () => {
-    setIsLoadingChats(true);
-    try {
-      const response = await apiClient.listChats();
-      setChats(response.data);
-    } catch {
-      setChats([]);
-    } finally {
-      setIsLoadingChats(false);
-    }
-  }, [apiClient]);
-
-  useEffect(() => {
-    queueMicrotask(() => {
-      void refreshChats();
-    });
-  }, [refreshChats]);
+  const {
+    data: chatsResponse,
+    isLoading: isLoadingChats,
+    refetch: refreshChats,
+  } = useQuery({
+    queryKey: ["chats"],
+    queryFn: () => apiClient.listChats(),
+    retry: false,
+  });
+  const chats: ChatSummary[] = chatsResponse?.data ?? [];
+  const handleSignOut = onSignOut ?? (() => window.location.assign("/"));
 
   function startPanelResize(side: "chat" | "dataset", event: PointerEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -303,7 +350,12 @@ export function AppShell({ activeView = "home", chatId, getToken }: AppShellProp
               style={{ width: chatSidebarWidth }}
               aria-label="Chat sidebar"
             >
-              <SidebarContent chats={chats} isLoadingChats={isLoadingChats} onClose={() => setIsChatSidebarOpen(false)} />
+              <SidebarContent
+                chats={chats}
+                isLoadingChats={isLoadingChats}
+                onSignOut={handleSignOut}
+                onClose={() => setIsChatSidebarOpen(false)}
+              />
             </aside>
             <div
               className="hidden w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[#b8aa9a] lg:block"
@@ -365,13 +417,44 @@ export function AppShell({ activeView = "home", chatId, getToken }: AppShellProp
                 onChatUpdated={() => void refreshChats()}
               />
             ) : (
-              <SherlockMessage className="w-full max-w-2xl border border-[#d9cdbf] bg-[#fffaf7] p-5">
-                <h1 className="text-2xl font-semibold tracking-[-0.05em]">Investigation desk</h1>
-                <p className="mt-3 text-sm leading-6 text-[#655c52]">
-                  Start a new investigation or reopen a previous chat from the sidebar.
-                </p>
-                <SherlockThinkingState className="mt-5 flex items-center gap-2" />
-              </SherlockMessage>
+              <section className="w-full max-w-4xl py-8" aria-label="Investigation hub">
+                <div className="flex flex-col gap-4 border-b border-[#d9cdbf] pb-6 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="font-mono text-xs uppercase text-[#8f6a4e]">Workspace</p>
+                    <h1 className="mt-2 text-2xl font-semibold">Investigation desk</h1>
+                    <p className="mt-2 text-sm text-[#655c52]">Upload a spreadsheet or reopen an evidence-backed investigation.</p>
+                  </div>
+                  <Link href="/app/new" className="inline-flex h-11 items-center justify-center gap-2 border border-[#241f1a] bg-[#241f1a] px-4 text-sm font-semibold text-[#fffaf7]">
+                    <Plus size={16} />
+                    New Investigation
+                  </Link>
+                </div>
+                {chats.length === 0 ? (
+                  <SherlockMessage className="mt-6 border border-[#d9cdbf] bg-[#fffaf7] p-5">
+                    <FileSpreadsheet size={20} />
+                    <h2 className="mt-4 text-lg font-semibold">Start with a CSV or XLSX file</h2>
+                    <p className="mt-2 max-w-xl text-sm leading-6 text-[#655c52]">
+                      Sherlock will inspect the upload, surface quality issues, and let you review the dataset before opening a chat.
+                    </p>
+                    <Link href="/app/new" className="mt-5 inline-flex h-10 items-center gap-2 border border-[#241f1a] px-3 text-sm font-semibold">
+                      Upload dataset
+                      <PanelRightOpen size={15} />
+                    </Link>
+                  </SherlockMessage>
+                ) : (
+                  <div className="mt-6">
+                    <h2 className="text-sm font-semibold text-[#51473f]">Recent investigations</h2>
+                    <div className="mt-3 divide-y divide-[#eee4d8] border border-[#d9cdbf] bg-[#fffaf7]">
+                      {chats.slice(0, 6).map((chat) => (
+                        <Link key={chat.id} href={`/app/chat/${chat.id}`} className="flex items-center justify-between gap-4 px-4 py-3 text-sm font-medium">
+                          <span className="truncate">{chat.title}</span>
+                          <PanelRightOpen className="shrink-0 text-[#8b7d70]" size={15} />
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
             )}
           </div>
         </SherlockConversation>
@@ -394,36 +477,44 @@ export function AppShell({ activeView = "home", chatId, getToken }: AppShellProp
         ) : null}
       </div>
 
-      {isMobileChatDrawerOpen ? (
-        <div className="fixed inset-0 z-40 bg-[#241f1a]/35 lg:hidden" onClick={() => setIsMobileChatDrawerOpen(false)}>
-          <aside
-            className="h-full w-[min(22rem,88vw)] border-r border-[#ddd2c4] bg-[#efe6da] p-5"
-            onClick={(event) => event.stopPropagation()}
-            aria-label="Mobile chat sidebar"
-          >
+      <Sheet open={isMobileChatDrawerOpen} onOpenChange={setIsMobileChatDrawerOpen}>
+        <SheetContent
+          side="left"
+          showCloseButton={false}
+          className="w-[min(22rem,88vw)] border-r border-[#ddd2c4] bg-[#efe6da] p-5 lg:hidden"
+          aria-label="Mobile chat sidebar"
+        >
+          <SheetTitle className="sr-only">Investigations</SheetTitle>
+          <SheetDescription className="sr-only">Recent investigations and account controls.</SheetDescription>
+          <div className="h-full">
             <SidebarContent
               chats={chats}
               isLoadingChats={isLoadingChats}
+              onSignOut={handleSignOut}
               onClose={() => setIsMobileChatDrawerOpen(false)}
             />
-          </aside>
-        </div>
-      ) : null}
+          </div>
+        </SheetContent>
+      </Sheet>
 
-      {isMobileDatasetDrawerOpen ? (
-        <div className="fixed inset-0 z-40 bg-[#241f1a]/35 lg:hidden" onClick={() => setIsMobileDatasetDrawerOpen(false)}>
-          <aside
-            className="ml-auto h-full w-[min(24rem,90vw)] border-l border-[#ddd2c4] bg-[#efe6da] p-5"
-            onClick={(event) => event.stopPropagation()}
-          >
+      <Sheet open={isMobileDatasetDrawerOpen} onOpenChange={setIsMobileDatasetDrawerOpen}>
+        <SheetContent
+          side="right"
+          showCloseButton={false}
+          className="w-[min(24rem,90vw)] border-l border-[#ddd2c4] bg-[#efe6da] p-5 lg:hidden"
+          aria-label="Mobile dataset panel"
+        >
+          <SheetTitle className="sr-only">Dataset inspector</SheetTitle>
+          <SheetDescription className="sr-only">Preview, schema, and quality details for the active dataset.</SheetDescription>
+          <div className="h-full">
             <DatasetPanel
               apiClient={apiClient}
               datasetId={activeDatasetId}
               onClose={() => setIsMobileDatasetDrawerOpen(false)}
             />
-          </aside>
-        </div>
-      ) : null}
+          </div>
+        </SheetContent>
+      </Sheet>
     </main>
   );
 }
