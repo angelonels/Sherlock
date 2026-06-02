@@ -1,6 +1,7 @@
 "use client";
 
 import type { AssistantBlock } from "@/lib/types";
+import { MessageResponse } from "@/components/ai-elements/message";
 import { ChartRenderer } from "@/features/charts/chart-renderer";
 
 type BlockMap = Extract<AssistantBlock, { type: string }>;
@@ -14,7 +15,11 @@ export function BlockRenderer({ blocks }: { blocks: AssistantBlock[] | null | un
       {blocks.map((block, index) => {
         if (block.type === "markdown") {
           const markdown = block as Extract<BlockMap, { type: "markdown" }>;
-          return <p key={index} className="text-sm leading-6 text-[#51473f]">{markdown.content}</p>;
+          return (
+            <MessageResponse key={index} className="text-sm leading-6 text-[#51473f]">
+              {markdown.content}
+            </MessageResponse>
+          );
         }
         if (block.type === "plan") {
           const plan = block as Extract<BlockMap, { type: "plan" }>;
