@@ -7,10 +7,12 @@ import { SiteHeader } from "@/components/landing/sections/site-header";
 import { WorkflowSection } from "@/components/landing/sections/workflow-section";
 import { ScrollProgress } from "@/components/landing/scroll-progress";
 import { SectionReveal } from "@/components/landing/section-reveal";
+import { RedirectIfAuthenticated } from "@/features/auth/auth-gate";
 
 export function LandingPage() {
   return (
     <main className="relative min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-[#f7f3ec] text-[#241f1a]">
+      <RedirectIfAuthenticated />
       <ScrollProgress />
       <PointerAura />
       <div className="ambient-light" aria-hidden="true" />

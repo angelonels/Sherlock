@@ -1,7 +1,11 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { LandingPage } from "@/components/landing/landing-page";
+
+vi.mock("@clerk/nextjs", () => ({
+  useAuth: () => ({ isLoaded: true, isSignedIn: false }),
+}));
 
 describe("LandingPage", () => {
   it("renders for logged-out visitors with a visible primary CTA", () => {
@@ -16,4 +20,3 @@ describe("LandingPage", () => {
     );
   });
 });
-
