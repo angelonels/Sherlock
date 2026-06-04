@@ -1,9 +1,9 @@
 # ─── Sherlock — Development ────────────────────────────────
-# Only PostgreSQL + pgvector runs in Docker.
+# PostgreSQL + pgvector and Redis run in Docker.
 # FastAPI runs on your local Python environment.
 #
 # Usage:
-#   docker compose up -d          # start DB
+#   docker compose up -d          # start DB and Redis
 #   docker compose down           # stop DB
 #   docker compose down -v        # stop + delete data
 # ──────────────────────────────────────────────────────────
@@ -23,6 +23,18 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sherlock_admin -d sherlock_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: sherlock_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
