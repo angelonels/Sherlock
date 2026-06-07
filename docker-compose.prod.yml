@@ -1,14 +1,65 @@
+name: sherlock-prod
+
 services:
+  preflight:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    command: uv run --no-sync python -m app.scripts.validate_production_config
+    env_file:
+      - ./apps/api/.env.docker
+      - ./infra/postgres/backup.env.docker
+    environment:
+      ALLOW_INSECURE_PRODUCTION_CONFIG: ${ALLOW_INSECURE_PRODUCTION_CONFIG:-false}
+    restart: "no"
+
   nginx:
     image: nginx:1.27-alpine
     ports:
-      - "80:80"
-      - "443:443"
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
     volumes:
       - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
+
+  migrate:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    command:
+      [
+        "sh",
+        "-c",
+        "uv run --no-sync alembic upgrade head && uv run --no-sync python -m app.scripts.setup_checkpointer",
+      ]
+    env_file:
+      - ./apps/api/.env.docker
+    depends_on:
+      provision-readonly:
+        condition: service_completed_successfully
+    restart: "no"
+
+  provision-readonly:
+    image: postgres:16-alpine
+    command: ["sh", "/scripts/provision-readonly.sh"]
+    env_file:
+      - ./apps/api/.env.docker
+    volumes:
+      - ./infra/postgres/provision-readonly.sh:/scripts/provision-readonly.sh:ro
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   api:
     build:
@@ -18,24 +69,99 @@ services:
     env_file:
       - ./apps/api/.env.docker
     depends_on:
-      postgres:
+      migrate:
+        condition: service_completed_successfully
+      redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   worker:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
-    command: python -m app.workers.main
+    command: uv run --no-sync celery -A app.workers.celery_app.celery_app worker --loglevel=INFO
     env_file:
       - ./apps/api/.env.docker
     depends_on:
-      postgres:
+      migrate:
+        condition: service_completed_successfully
+      redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app.celery_app inspect ping -d celery@$$HOSTNAME --timeout=5 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    command: uv run --no-sync celery -A app.workers.celery_app.celery_app beat --loglevel=INFO
+    env_file:
+      - ./apps/api/.env.docker
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /app/celerybeat-schedule && kill -0 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  backup:
+    build:
+      context: ./infra/postgres
+      dockerfile: backup.Dockerfile
+    command: ["sh", "/scripts/backup-loop.sh"]
+    env_file:
+      - ./apps/api/.env.docker
+      - ./infra/postgres/backup.env.docker
+    volumes:
+      - ./infra/postgres/backup-loop.sh:/scripts/backup-loop.sh:ro
+      - sherlock_postgres_backups:/backups
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "test -s /backups/.last-success && { test -z \"$$POSTGRES_BACKUP_S3_URI\" || test -s /backups/.last-offsite-success; } && kill -0 1",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - sherlock_redis_prod:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   postgres:
     image: pgvector/pgvector:pg16
+    env_file:
+      - ./apps/api/.env.docker
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-sherlock_admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
@@ -51,3 +177,5 @@ services:
 
 volumes:
   sherlock_postgres_prod:
+  sherlock_postgres_backups:
+  sherlock_redis_prod:
