@@ -7,6 +7,7 @@ on:
 jobs:
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: apps/web
@@ -22,9 +23,23 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - name: Reject unsafe Vercel deployment configuration
+        run: |
+          if VERCEL_ENV=production NEXT_PUBLIC_AUTH_BYPASS=true node scripts/validate-deployment-env.mjs; then
+            echo "Unsafe Vercel configuration unexpectedly passed."
+            exit 1
+          fi
+      - name: Accept complete Vercel deployment configuration
+        env:
+          VERCEL_ENV: production
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ci
+          NEXT_PUBLIC_API_BASE_URL: https://api.sherlock.example.org/api/v1
+        run: node scripts/validate-deployment-env.mjs
+      - run: pnpm build
 
   api:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -39,11 +54,24 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: apps/api
     env:
       DATABASE_URL: postgresql+psycopg://sherlock_admin:change_me@localhost:5432/sherlock_db
+      READONLY_DATABASE_URL: postgresql+psycopg://sherlock_readonly:change_me@localhost:5432/sherlock_db
+      REDIS_URL: redis://localhost:6379/0
+      CELERY_BROKER_URL: redis://localhost:6379/0
+      CELERY_RESULT_BACKEND: redis://localhost:6379/1
       FRONTEND_ORIGIN: http://localhost:3000
     steps:
       - uses: actions/checkout@v5
@@ -52,5 +80,119 @@ jobs:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v7
       - run: uv sync
+      - run: uv run ruff check app tests alembic
+      - name: Test backup and off-host upload module
+        working-directory: .
+        run: sh infra/postgres/test-backup-loop.sh
+      - name: Provision readonly database role
+        working-directory: .
+        run: >-
+          docker run --rm --network host
+          -e POSTGRES_HOST=127.0.0.1
+          -e POSTGRES_USER=sherlock_admin
+          -e POSTGRES_PASSWORD=change_me
+          -e POSTGRES_DB=sherlock_db
+          -e POSTGRES_READONLY_PASSWORD=change_me
+          -v "$GITHUB_WORKSPACE/infra/postgres/provision-readonly.sh:/scripts/provision-readonly.sh:ro"
+          postgres:16-alpine sh /scripts/provision-readonly.sh
       - run: uv run alembic upgrade head
-      - run: uv run pytest
+      - run: uv run python -m app.scripts.setup_checkpointer
+      - run: uv run pytest -q
+      - name: Start Celery worker
+        run: uv run celery -A app.workers.celery_app.celery_app worker --loglevel=INFO --pool=solo --concurrency=1 > /tmp/sherlock-celery.log 2>&1 &
+      - name: Wait for Celery worker
+        run: |
+          for attempt in $(seq 1 20); do
+            if uv run celery -A app.workers.celery_app.celery_app inspect ping --timeout=2 | grep -q pong; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/sherlock-celery.log
+          exit 1
+      - name: Run live Celery integration tests
+        env:
+          RUN_LIVE_CELERY_TESTS: "1"
+        run: uv run pytest -q tests/integration/test_celery_live.py
+      - name: Show Celery logs on failure
+        if: failure()
+        run: cat /tmp/sherlock-celery.log || true
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [api, web]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: sherlock_admin
+          POSTGRES_PASSWORD: change_me
+          POSTGRES_DB: sherlock_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sherlock_admin -d sherlock_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://sherlock_admin:change_me@localhost:5432/sherlock_db
+      READONLY_DATABASE_URL: postgresql+psycopg://sherlock_readonly:change_me@localhost:5432/sherlock_db
+      FRONTEND_ORIGIN: http://127.0.0.1:3100
+      CORS_ORIGINS: http://127.0.0.1:3100
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.22.0
+      - name: Install backend
+        working-directory: apps/api
+        run: uv sync
+      - name: Provision readonly database role
+        run: >-
+          docker run --rm --network host
+          -e POSTGRES_HOST=127.0.0.1
+          -e POSTGRES_USER=sherlock_admin
+          -e POSTGRES_PASSWORD=change_me
+          -e POSTGRES_DB=sherlock_db
+          -e POSTGRES_READONLY_PASSWORD=change_me
+          -v "$GITHUB_WORKSPACE/infra/postgres/provision-readonly.sh:/scripts/provision-readonly.sh:ro"
+          postgres:16-alpine sh /scripts/provision-readonly.sh
+      - name: Bootstrap backend database
+        working-directory: apps/api
+        run: |
+          uv run alembic upgrade head
+          uv run python -m app.scripts.setup_checkpointer
+      - name: Start FastAPI
+        working-directory: apps/api
+        run: uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/sherlock-api.log 2>&1 &
+      - name: Wait for FastAPI
+        run: |
+          for attempt in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8000/api/v1/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/sherlock-api.log
+          exit 1
+      - name: Install frontend
+        working-directory: apps/web
+        run: pnpm install --frozen-lockfile
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run Playwright
+        working-directory: apps/web
+        run: pnpm test:e2e
+      - name: Show API logs on failure
+        if: failure()
+        run: cat /tmp/sherlock-api.log || true
